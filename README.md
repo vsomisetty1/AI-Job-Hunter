@@ -27,7 +27,7 @@ Files containing `PLACEHOLDER - implemented in PHASE N` are stubs filled in by t
 ## Database quick start (Phase 2)
 
 ```bash
-cp .env.example .env            # set POSTGRES_PASSWORD (and keep DATABASE_URL in sync)
+cp .env.example .env            # REQUIRED: set POSTGRES_PASSWORD (and keep DATABASE_URL in sync)
 docker compose up -d db         # Postgres 16 on localhost:5432
 cd backend && python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
@@ -45,4 +45,11 @@ TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:change_me@localhost:5432/jobhu
   pytest tests/integration/test_migrations.py
 ```
 
-`backend/schema.sql` is the DDL source of truth; migration `0001` executes it and the ORM models mirror it.
+**Schema workflow.** `backend/schema.sql` is the readable reference for the current schema. Migration `0001` executes a frozen copy (`backend/migrations/sql/0001_initial.sql`); a unit test keeps the two identical. **Never edit a migration that has been applied: add a new Alembic revision instead** (then update `schema.sql` and the test that pins it). The ORM models mirror the schema. Requires PostgreSQL 15+.
+
+**Validation.** `backend/tests/sql/validate_catalog.sql` (must return zero rows) and `backend/tests/sql/behavior.sql` (constraint/FK/cascade/trigger assertions) run inside `tests/integration/test_migrations.py`, or by hand:
+
+```bash
+psql "$DB" -f backend/tests/sql/validate_catalog.sql
+psql "$DB" -v ON_ERROR_STOP=1 -f backend/tests/sql/behavior.sql
+```

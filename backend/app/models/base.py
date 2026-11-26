@@ -5,14 +5,15 @@ The DDL source of truth is backend/schema.sql; these models mirror it.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, func, text
+from sqlalchemy import DateTime, MetaData, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy.types import Text
 
 
 class Base(DeclarativeBase):
-    pass
+    # FK names match schema.sql: fk_<table>_<first column>
+    metadata = MetaData(naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s"})
 
 
 def text_array() -> ARRAY:

@@ -1,7 +1,7 @@
 """ORM: cover_letters"""
 import uuid
 
-from sqlalchemy import ForeignKey, Index, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,6 +23,8 @@ class CoverLetter(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     model: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
+        CheckConstraint("btrim(content) <> ''", name="ck_cover_letters_content"),
         UniqueConstraint("job_id", "profile_id", name="uq_cover_letters_job_profile"),
+        UniqueConstraint("id", "job_id", name="uq_cover_letters_id_job"),
         Index("ix_cover_letters_profile_id", "profile_id"),
     )

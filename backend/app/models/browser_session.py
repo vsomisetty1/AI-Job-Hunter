@@ -23,5 +23,9 @@ class BrowserSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __table_args__ = (
         CheckConstraint("platform ~ '^[a-z_]+$'", name="ck_browser_sessions_platform"),
+        CheckConstraint("btrim(account_label) <> ''", name="ck_browser_sessions_label"),
+        CheckConstraint(
+            "jsonb_typeof(storage_state) = 'object'", name="ck_browser_sessions_state_json"
+        ),
         UniqueConstraint("platform", "account_label", name="uq_browser_sessions_platform_account"),
     )

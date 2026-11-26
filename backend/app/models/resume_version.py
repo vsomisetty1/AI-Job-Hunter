@@ -1,4 +1,4 @@
-"""ORM: resume_versions"""
+"""ORM: resume_versions (tailored resume per job)"""
 import uuid
 from typing import Any
 
@@ -10,22 +10,21 @@ from app.models.base import (
     EMPTY_ARRAY,
     EMPTY_OBJECT,
     Base,
-    CreatedAtMixin,
+    TimestampMixin,
     UUIDPrimaryKeyMixin,
     text_array,
 )
 
 
-class ResumeVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+class ResumeVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "resume_versions"
 
     resume_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False
     )
-    job_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE")
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
     )
-    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="tailored")
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     content: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=EMPTY_OBJECT
@@ -40,14 +39,11 @@ class ResumeVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     resume = relationship("Resume", back_populates="versions")
 
     __table_args__ = (
-        CheckConstraint("kind IN ('original', 'tailored')", name="ck_resume_versions_kind"),
         CheckConstraint("version_number >= 1", name="ck_resume_versions_version"),
-        CheckConstraint(
-            "kind = 'original' OR job_id IS NOT NULL", name="ck_resume_versions_tailored_has_job"
-        ),
+        CheckConstraint("jsonb_typeof(content) = 'object'", name="ck_resume_versions_content_json"),
         UniqueConstraint(
             "resume_id", "job_id", "version_number", name="uq_resume_versions_resume_job_version"
         ),
-        Index("ix_resume_versions_resume_id", "resume_id"),
+        UniqueConstraint("id", "job_id", name="uq_resume_versions_id_job"),
         Index("ix_resume_versions_job_id", "job_id"),
     )

@@ -44,9 +44,13 @@ class JobScore(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         CheckConstraint("growth_score BETWEEN 0 AND 100", name="ck_job_scores_growth"),
         CheckConstraint("company_score BETWEEN 0 AND 100", name="ck_job_scores_company"),
         CheckConstraint("input_tokens >= 0 AND output_tokens >= 0", name="ck_job_scores_tokens"),
+        CheckConstraint(
+            "jsonb_typeof(matched_skills) = 'array' AND jsonb_typeof(missing_skills) = 'array'",
+            name="ck_job_scores_skills_json",
+        ),
         UniqueConstraint(
             "job_id", "profile_id", "prompt_version", name="uq_job_scores_job_profile_prompt"
         ),
+        UniqueConstraint("id", "job_id", name="uq_job_scores_id_job"),
         Index("ix_job_scores_profile_overall", "profile_id", text("overall_score DESC")),
-        Index("ix_job_scores_job_id", "job_id"),
     )

@@ -48,6 +48,13 @@ class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     resumes = relationship("Resume", back_populates="profile", cascade="all, delete-orphan")
 
     __table_args__ = (
+        CheckConstraint("btrim(full_name) <> ''", name="ck_candidate_profiles_name"),
+        CheckConstraint(
+            "jsonb_typeof(profile) = 'object'", name="ck_candidate_profiles_profile_json"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(inference) = 'object'", name="ck_candidate_profiles_inference_json"
+        ),
         CheckConstraint(
             "years_experience IS NULL OR (years_experience >= 0 AND years_experience <= 70)",
             name="ck_candidate_profiles_years",

@@ -44,12 +44,26 @@ class AgentRun(UUIDPrimaryKeyMixin, Base):
             name="ck_agent_runs_status",
         ),
         CheckConstraint("input_tokens >= 0 AND output_tokens >= 0", name="ck_agent_runs_tokens"),
+        CheckConstraint("btrim(agent_name) <> ''", name="ck_agent_runs_name"),
         CheckConstraint("cost_usd >= 0", name="ck_agent_runs_cost"),
+        CheckConstraint("duration_ms IS NULL OR duration_ms >= 0", name="ck_agent_runs_duration"),
+        CheckConstraint(
+            "status = 'running' OR finished_at IS NOT NULL", name="ck_agent_runs_done_has_finish"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(input_summary) = 'object' AND jsonb_typeof(output_summary) = 'object'",
+            name="ck_agent_runs_summaries_json",
+        ),
         CheckConstraint(
             "finished_at IS NULL OR finished_at >= started_at", name="ck_agent_runs_finished"
         ),
         Index("ix_agent_runs_agent_started", "agent_name", text("started_at DESC")),
+        Index("ix_agent_runs_started_at", "started_at"),
         Index("ix_agent_runs_status", "status"),
-        Index("ix_agent_runs_job_id", "job_id"),
-        Index("ix_agent_runs_application_id", "application_id"),
+        Index("ix_agent_runs_job_id", "job_id", postgresql_where=text("job_id IS NOT NULL")),
+        Index(
+            "ix_agent_runs_application_id",
+            "application_id",
+            postgresql_where=text("application_id IS NOT NULL"),
+        ),
     )

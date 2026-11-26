@@ -7,7 +7,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Numeric,
-    String,
     Text,
     UniqueConstraint,
     text,
@@ -15,17 +14,17 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
+from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
-class ApplicationAnswer(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+class ApplicationAnswer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "application_answers"
 
     application_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
-    question_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    question_hash: Mapped[str] = mapped_column(Text, nullable=False)
     question_key: Mapped[str | None] = mapped_column(Text)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False)
@@ -49,7 +48,6 @@ class ApplicationAnswer(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         UniqueConstraint(
             "application_id", "question_hash", name="uq_application_answers_app_question"
         ),
-        Index("ix_application_answers_application_id", "application_id"),
         Index(
             "ix_application_answers_needs_review",
             "application_id",
