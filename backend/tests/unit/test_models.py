@@ -47,7 +47,16 @@ def test_composite_foreign_keys_guarantee_same_job():
 
 
 def test_job_and_application_history_protected():
-    jobs_fk = {fk.parent.name: fk.ondelete for fk in Base.metadata.tables["jobs"].foreign_keys}
-    app_fk = {fk.parent.name: fk.ondelete for fk in Base.metadata.tables["applications"].foreign_keys}
+    def single_column_fks(table: str) -> dict[str, str | None]:
+        # Composite FKs (e.g. applications.(resume_version_id, job_id)) also contain
+        # job_id; only single-column constraints describe the column's own rule.
+        return {
+            fk.columns[0].name: fk.ondelete
+            for fk in Base.metadata.tables[table].foreign_key_constraints
+            if len(fk.columns) == 1
+        }
+
+    jobs_fk = single_column_fks("jobs")
+    app_fk = single_column_fks("applications")
     assert jobs_fk["company_id"] == "RESTRICT"
     assert app_fk["job_id"] == "RESTRICT"

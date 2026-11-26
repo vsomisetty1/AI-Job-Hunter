@@ -4,7 +4,6 @@ Set TEST_DATABASE_URL to an EMPTY, disposable database, e.g.
   postgresql+psycopg2://jobhunter:change_me@localhost:5432/jobhunter_test
 WARNING: these tests run `alembic downgrade base`, which drops all tables.
 """
-from pathlib import Path
 
 import pytest
 

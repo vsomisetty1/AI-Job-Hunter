@@ -13,7 +13,7 @@ platform-adapter interfaces.
 |---|---|---|
 | 1 | Folder structure + project config | Done |
 | 2 | Database (schema, migrations, ORM) | Done |
-| 3 | Backend foundation | Pending |
+| 3 | Backend foundation | Ready (see docs/PHASE_3_PLAN.md) |
 | 4 | Resume system (Agents 0, 1, 6, 7, 8) | Pending |
 | 5 | Job discovery (Agents 2, 3, 4) | Pending |
 | 6 | Scoring + learning (Agent 5) | Pending |
