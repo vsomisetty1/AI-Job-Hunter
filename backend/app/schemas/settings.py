@@ -97,7 +97,7 @@ class SettingsUpdate(APIModel):
         return v.strip().upper() if isinstance(v, str) else v
 
     @model_validator(mode="after")
-    def _check(self) -> "SettingsUpdate":
+    def _check(self) -> SettingsUpdate:
         nulls = sorted(f for f in self.model_fields_set & NOT_NULLABLE if getattr(self, f) is None)
         if nulls:
             raise ValueError(f"fields cannot be null: {', '.join(nulls)}")

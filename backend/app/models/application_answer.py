@@ -1,4 +1,5 @@
 """ORM: application_answers"""
+
 import uuid
 from decimal import Decimal
 
@@ -42,9 +43,7 @@ class ApplicationAnswer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
             name="ck_application_answers_confidence",
         ),
-        CheckConstraint(
-            "question_hash ~ '^[0-9a-f]{64}$'", name="ck_application_answers_hash"
-        ),
+        CheckConstraint("question_hash ~ '^[0-9a-f]{64}$'", name="ck_application_answers_hash"),
         UniqueConstraint(
             "application_id", "question_hash", name="uq_application_answers_app_question"
         ),

@@ -1,5 +1,6 @@
 """App wiring without a database: auth, errors, middleware, OpenAPI."""
 
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -45,19 +46,20 @@ async def test_api_key_mode(make_app, client_for, headers, expected):
     assert health.status_code == 200  # probes stay open
 
 
-async def test_every_v1_route_requires_auth(make_app):
-    from app.core.security import get_current_user
-
-    app = make_app()
-    v1 = [
-        r
-        for r in app.routes
-        if getattr(r, "path", "").startswith("/api/v1/") and hasattr(r, "dependant")
+async def test_every_v1_operation_requires_auth(make_app, client_for):
+    """Behavioural guard: no /api/v1 operation in the spec is reachable without the key."""
+    app = make_app(auth_mode="api_key", api_key=KEY)
+    ops = [
+        (method, re.sub(r"\{[^}]+\}", "x", path))
+        for path, item in app.openapi()["paths"].items()
+        if path.startswith("/api/v1/")
+        for method in item
     ]
-    assert v1
-    for route in v1:
-        calls = {d.call for d in route.dependant.dependencies}
-        assert get_current_user in calls, route.path
+    assert len(ops) >= 6
+    async with client_for(app) as c:
+        for method, path in ops:
+            r = await c.request(method.upper(), path, json={})
+            assert r.status_code == 401, (method, path, r.status_code)
 
 
 async def test_unknown_route_uses_error_envelope(make_app, client_for):

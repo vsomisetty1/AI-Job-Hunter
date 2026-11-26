@@ -1,4 +1,5 @@
 """ORM: resume_versions (tailored resume per job)"""
+
 import uuid
 from typing import Any
 

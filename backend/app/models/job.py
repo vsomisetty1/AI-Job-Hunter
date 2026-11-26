@@ -1,4 +1,5 @@
 """ORM: jobs (source and company name come from the owning Company)"""
+
 import uuid
 from datetime import datetime
 from typing import Any

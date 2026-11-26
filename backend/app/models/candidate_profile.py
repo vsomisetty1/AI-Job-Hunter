@@ -1,4 +1,5 @@
 """ORM: candidate_profiles"""
+
 from decimal import Decimal
 from typing import Any
 

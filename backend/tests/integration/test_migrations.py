@@ -11,16 +11,16 @@ pytest.importorskip("sqlalchemy")
 pytest.importorskip("alembic")
 pytest.importorskip("psycopg2")
 
-import psycopg2  # noqa: E402
-from alembic import command  # noqa: E402
-from alembic.autogenerate import compare_metadata  # noqa: E402
-from alembic.config import Config  # noqa: E402
-from alembic.migration import MigrationContext  # noqa: E402
-from sqlalchemy import create_engine, inspect, text  # noqa: E402
+import psycopg2
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.config import Config
+from alembic.migration import MigrationContext
+from sqlalchemy import create_engine, inspect, text
 
-import app.models  # noqa: E402,F401
-from app.models.base import Base  # noqa: E402
-from tests.conftest import BACKEND_DIR  # noqa: E402
+import app.models  # noqa: F401
+from app.models.base import Base
+from tests.conftest import BACKEND_DIR
 
 SQL_DIR = BACKEND_DIR / "tests" / "sql"
 EXPECTED = set(Base.metadata.tables)

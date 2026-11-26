@@ -1,4 +1,5 @@
 """ORM: browser_sessions"""
+
 from datetime import datetime
 from typing import Any
 

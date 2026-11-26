@@ -1,10 +1,8 @@
 """Shared schemas: ORM base, error envelope, pagination."""
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
-
-T = TypeVar("T")
 
 
 class APIModel(BaseModel):
@@ -34,7 +32,7 @@ class PaginationParams(BaseModel):
     offset: int = Field(default=0, ge=0)
 
 
-class Page(BaseModel, Generic[T]):
+class Page[T](BaseModel):
     items: list[T]
     total: int
     limit: int

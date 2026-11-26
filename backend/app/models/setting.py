@@ -1,4 +1,5 @@
 """ORM: settings (single row, id = 1)"""
+
 from datetime import datetime
 from typing import Any
 

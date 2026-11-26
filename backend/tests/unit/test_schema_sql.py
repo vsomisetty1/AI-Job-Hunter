@@ -1,4 +1,5 @@
 """Static validation of backend/schema.sql (no database needed)."""
+
 import re
 from collections import Counter
 
@@ -78,9 +79,9 @@ def test_no_redundant_indexes(schema_sql):
             o.columns for o in indexes if o is not ix and o.table == ix.table and not o.partial
         ]
         for other in covering:
-            assert not (
-                None not in other and other[: len(ix.columns)] == ix.columns
-            ), f"{ix.name} is redundant with {other}"
+            assert not (None not in other and other[: len(ix.columns)] == ix.columns), (
+                f"{ix.name} is redundant with {other}"
+            )
 
 
 def test_constraint_and_index_names_unique_and_prefixed(schema_sql):

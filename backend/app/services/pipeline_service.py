@@ -140,7 +140,7 @@ class PipelineService:
         self._sessionmaker = sessionmaker
 
     @classmethod
-    def discovery(cls) -> "PipelineService":
+    def discovery(cls) -> PipelineService:
         """Discovery -> dedup -> rule filter -> scoring. Stages arrive in Phases 5-6."""
         return cls(stages=[])
 

@@ -2,6 +2,7 @@
 
 The DDL source of truth is backend/schema.sql; these models mirror it.
 """
+
 import uuid
 from datetime import datetime
 

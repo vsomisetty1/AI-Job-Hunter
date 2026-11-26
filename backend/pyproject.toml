@@ -1,16 +1,18 @@
 [project]
 name = "ai-job-hunter-backend"
 version = "0.1.0"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# Deprecations from our code or dependencies fail the run, so upgrades surface them early.
+filterwarnings = ["error"]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE", "RUF100"]

@@ -4,6 +4,7 @@ Composite FKs guarantee the attached resume version, cover letter and score
 belong to the same job as the application. ON DELETE SET NULL (column) needs
 PostgreSQL 15+.
 """
+
 import uuid
 from datetime import datetime
 from typing import Any

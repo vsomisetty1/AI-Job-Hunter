@@ -90,7 +90,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _check_auth(self) -> "Settings":
+    def _check_auth(self) -> Settings:
         if self.auth_mode == "api_key":
             key = self.api_key.get_secret_value() if self.api_key else ""
             if len(key) < 32:

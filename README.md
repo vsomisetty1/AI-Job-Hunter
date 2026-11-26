@@ -5,7 +5,10 @@ score them with Claude, tailor resumes, generate application packages, and apply
 (approval or autonomous mode). Workday can be added later via the connector and
 platform-adapter interfaces.
 
-**Stack:** Next.js + TypeScript + Tailwind · FastAPI · PostgreSQL · Supabase Storage · Playwright · Claude API · Docker
+**Stack:** Next.js 16 + React 19 + TypeScript + Tailwind 4 (Node 26) · FastAPI on Python 3.14 · PostgreSQL 19 · Supabase Storage · Playwright · Claude API · Docker
+
+CI runs lint, tests against Postgres 19, a real-server smoke test and the frontend build
+on every push: see [docs/TESTING.md](docs/TESTING.md).
 
 ## Build status
 
@@ -45,15 +48,14 @@ work uses `session_scope()`. Scheduled jobs live in `scheduler/tasks.py`, ad-hoc
 async work goes through `BackgroundTaskManager` (`scheduler/background.py`), and
 agent invocations are recorded in `agent_runs` by `services/pipeline_service.py`.
 
-Tests: `pytest` (unit) plus `TEST_DATABASE_URL=... pytest` for the database-backed
-API and migration tests. Lint: `ruff check app tests migrations`.
+Tests, lint and smoke test: see [docs/TESTING.md](docs/TESTING.md).
 
 ## Database quick start (Phase 2)
 
 ```bash
 cp .env.example .env            # REQUIRED: set POSTGRES_PASSWORD (and keep DATABASE_URL in sync)
-docker compose up -d db         # Postgres 16 on localhost:5432
-cd backend && python -m venv .venv && source .venv/bin/activate
+docker compose up -d db         # Postgres 19 on localhost:5432
+cd backend && python3.14 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 cd .. && ./scripts/init_db.sh   # alembic upgrade head
 ```
@@ -69,7 +71,20 @@ TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:change_me@localhost:5432/jobhu
   pytest tests/integration/test_migrations.py
 ```
 
-**Schema workflow.** `backend/schema.sql` is the readable reference for the current schema. Migration `0001` executes a frozen copy (`backend/migrations/sql/0001_initial.sql`); a unit test keeps the two identical. **Never edit a migration that has been applied: add a new Alembic revision instead** (then update `schema.sql` and the test that pins it). The ORM models mirror the schema. Requires PostgreSQL 15+.
+**Schema workflow.** `backend/schema.sql` is the readable reference for the current schema. Migration `0001` executes a frozen copy (`backend/migrations/sql/0001_initial.sql`); a unit test keeps the two identical. **Never edit a migration that has been applied: add a new Alembic revision instead** (then update `schema.sql` and the test that pins it). The ORM models mirror the schema. Requires PostgreSQL 15+ (developed and tested on 19).
+
+**Upgrading from the Postgres 16 container.** `docker compose` now uses a new volume
+(`pgdata19`); the old `pgdata` volume is left as is. Nothing is migrated automatically.
+If the old database holds data you want, dump it before switching:
+
+```bash
+docker volume ls | grep pgdata          # e.g. ai-job-hunter_pgdata (the old one)
+docker run --rm -d --name pg16 -v ai-job-hunter_pgdata:/var/lib/postgresql/data postgres:16-alpine
+docker exec pg16 pg_dumpall -U jobhunter > backup.sql && docker stop pg16
+docker compose up -d db && docker compose exec -T db psql -U jobhunter -d jobhunter < backup.sql
+```
+
+Otherwise just run `./scripts/init_db.sh` against the new, empty database.
 
 **Validation.** `backend/tests/sql/validate_catalog.sql` (must return zero rows) and `backend/tests/sql/behavior.sql` (constraint/FK/cascade/trigger assertions) run inside `tests/integration/test_migrations.py`, or by hand:
 

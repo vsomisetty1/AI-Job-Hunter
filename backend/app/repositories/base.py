@@ -6,7 +6,7 @@ when to commit.
 """
 
 from collections.abc import Sequence
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,10 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError
 from app.models.base import Base
 
-ModelT = TypeVar("ModelT", bound=Base)
 
-
-class Repository(Generic[ModelT]):
+class Repository[ModelT: Base]:
     model: type[ModelT]
 
     def __init__(self, session: AsyncSession) -> None:

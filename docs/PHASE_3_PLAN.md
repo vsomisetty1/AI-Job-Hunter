@@ -11,7 +11,7 @@ versioning with OpenAPI served under it.
 
 ## Baseline check
 
-- Python 3.11+ (verified on 3.13), `pip install -r backend/requirements-dev.txt`: no conflicts.
+- Python 3.14 (originally verified on 3.13 before the toolchain upgrade), `pip install -r backend/requirements-dev.txt`: no conflicts.
 - `ruff check app tests`: clean.
 - `pytest`: 18 unit tests pass; 5 migration tests pass against PostgreSQL 16
   (`alembic upgrade/downgrade` round trip, catalog lint, behaviour SQL).

@@ -1,4 +1,5 @@
 """Import every model so Base.metadata is complete (Alembic, tests)."""
+
 from app.models.agent_run import AgentRun
 from app.models.application import Application
 from app.models.application_answer import ApplicationAnswer

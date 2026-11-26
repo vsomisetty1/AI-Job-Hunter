@@ -1,7 +1,7 @@
 # Phase 2: database only. Phase 9 adds backend, frontend and the full stack.
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:19-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-jobhunter}
@@ -11,7 +11,10 @@ services:
       # Loopback only: never expose the database to the network.
       - "127.0.0.1:5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18+ images keep data under /var/lib/postgresql/<major>/, so the
+      # volume mounts the parent. New volume name: the old Postgres 16 volume
+      # ("pgdata") is left untouched; see README to carry data over.
+      - pgdata19:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -19,4 +22,4 @@ services:
       retries: 10
 
 volumes:
-  pgdata:
+  pgdata19:

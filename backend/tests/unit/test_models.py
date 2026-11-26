@@ -1,12 +1,13 @@
 """ORM models must mirror schema.sql (tables, columns, named constraints)."""
+
 import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from sqlalchemy import CheckConstraint, UniqueConstraint  # noqa: E402
+from sqlalchemy import CheckConstraint, UniqueConstraint
 
-from app.models import Base  # noqa: E402
-from tests.unit.schema_parser import parse_tables  # noqa: E402
+from app.models import Base
+from tests.unit.schema_parser import parse_tables
 
 
 def test_tables_match_schema(schema_sql):

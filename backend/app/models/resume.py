@@ -1,4 +1,5 @@
 """ORM: resumes"""
+
 import uuid
 from datetime import datetime
 
@@ -24,9 +25,7 @@ class Resume(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     is_primary: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
 
     profile = relationship("CandidateProfile", back_populates="resumes")
-    versions = relationship(
-        "ResumeVersion", back_populates="resume", cascade="all, delete-orphan"
-    )
+    versions = relationship("ResumeVersion", back_populates="resume", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint("btrim(filename) <> ''", name="ck_resumes_filename"),
