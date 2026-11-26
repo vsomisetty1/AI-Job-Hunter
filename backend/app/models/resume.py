@@ -1,4 +1,42 @@
-"""ORM: resumes
+"""ORM: resumes"""
+import uuid
+from datetime import datetime
 
-PLACEHOLDER - implemented in PHASE 2.
-"""
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.models.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
+
+
+class Resume(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
+    __tablename__ = "resumes"
+
+    profile_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("candidate_profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    filename: Mapped[str] = mapped_column(Text, nullable=False)
+    file_type: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_text: Mapped[str | None] = mapped_column(Text)
+    parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_primary: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
+
+    profile = relationship("CandidateProfile", back_populates="resumes")
+    versions = relationship(
+        "ResumeVersion", back_populates="resume", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint("file_type IN ('pdf', 'docx')", name="ck_resumes_file_type"),
+        CheckConstraint("content_hash ~ '^[0-9a-f]{64}$'", name="ck_resumes_content_hash"),
+        UniqueConstraint("profile_id", "content_hash", name="uq_resumes_profile_hash"),
+        Index("ix_resumes_profile_id", "profile_id"),
+        Index(
+            "uq_resumes_one_primary",
+            "profile_id",
+            unique=True,
+            postgresql_where=text("is_primary"),
+        ),
+    )
