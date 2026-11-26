@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Job Hunter API"
-    app_version: str = "0.3.0"
+    app_version: str = "0.4.0"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     log_json: bool | None = None  # default: JSON in production only
@@ -63,12 +63,38 @@ class Settings(BaseSettings):
     db_max_overflow: int = 5
     db_echo: bool = False
 
-    anthropic_api_key: str | None = None
+    # Claude. Without ANTHROPIC_API_KEY the app still works: parsing and
+    # profile generation fall back to deterministic results.
+    anthropic_api_key: SecretStr | None = None
     claude_model_scoring: str = "claude-haiku-5-5"
     claude_model_writing: str = "claude-sonnet-5-5"
+    # Resume parsing fallback, profile inference, career analysis, skill extraction.
+    claude_model_analysis: str = "claude-opus-5-5"
+    claude_effort_analysis: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    claude_max_retries: int = Field(default=3, ge=0, le=10)
+    claude_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Server-side refusal fallback (routes a declined request to another model).
+    claude_refusal_fallback: bool = True
+    llm_cache_ttl_days: int = Field(default=30, ge=0)  # 0 = never expires
 
+    # Resume uploads
+    max_upload_mb: float = Field(default=10.0, gt=0, le=50)
+    max_pdf_pages: int = Field(default=20, ge=1, le=200)
+    parse_timeout_seconds: float = Field(default=30.0, gt=0)
+    parse_memory_limit_mb: int = Field(default=1024, ge=128)
+    # "clamd": scan every upload with ClamAV (INSTREAM). Uploads are always
+    # structurally checked (see app/documents/validation.py) regardless.
+    virus_scanner: Literal["none", "clamd"] = "none"
+    clamd_host: str = "127.0.0.1"
+    clamd_port: int = 3310
+    clamd_timeout_seconds: float = Field(default=30.0, gt=0)
+
+    # File storage. "local" keeps files under LOCAL_STORAGE_DIR; "supabase"
+    # uses a private Supabase Storage bucket.
+    storage_backend: Literal["local", "supabase"] = "local"
+    local_storage_dir: str = "./data/storage"
     supabase_url: str | None = None
-    supabase_service_role_key: str | None = None
+    supabase_service_role_key: SecretStr | None = None
     supabase_bucket: str = "job-hunter"
 
     playwright_headless: bool = True
@@ -101,6 +127,24 @@ class Settings(BaseSettings):
                 "set AUTH_MODE=api_key to listen on other interfaces"
             )
         return self
+
+    @model_validator(mode="after")
+    def _check_storage(self) -> Settings:
+        if self.storage_backend == "supabase" and not (
+            self.supabase_url and self.supabase_service_role_key
+        ):
+            raise ValueError(
+                "STORAGE_BACKEND=supabase needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
+            )
+        return self
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return int(self.max_upload_mb * 1024 * 1024)
+
+    @property
+    def llm_enabled(self) -> bool:
+        return bool(self.anthropic_api_key and self.anthropic_api_key.get_secret_value())
 
     @property
     def is_loopback_host(self) -> bool:

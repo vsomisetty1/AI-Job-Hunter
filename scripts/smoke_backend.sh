@@ -15,12 +15,16 @@ LOG="$(mktemp)"
 cd "$ROOT/backend"
 alembic upgrade head
 
+STORE="$(mktemp -d)"
+WORK=""
 # APP_ENV=test: no auto-reload. Scheduler stays on so startup is exercised fully.
-APP_ENV=test BACKEND_PORT="$PORT" python -m app >"$LOG" 2>&1 &
+APP_ENV=test BACKEND_PORT="$PORT" LOCAL_STORAGE_DIR="$STORE" ANTHROPIC_API_KEY= \
+  python -m app >"$LOG" 2>&1 &
 PID=$!
 cleanup() {
   kill "$PID" 2>/dev/null || true
   wait "$PID" 2>/dev/null || true
+  rm -rf "$STORE" "$WORK"
 }
 trap cleanup EXIT
 
@@ -60,5 +64,26 @@ expect 404 GET /api/v1/does-not-exist
 
 curl -fsS "$BASE/health/ready" | grep -q '"scheduler":{"ok":true,"detail":"running"}' \
   || fail "scheduler not running"
+
+# Resume flow: upload -> background processing -> profile.
+WORK="$(mktemp -d)"
+python -c "from tests.fixtures.documents import make_pdf; import sys; sys.stdout.buffer.write(make_pdf())" \
+  >"$WORK/cv.pdf"
+UPLOAD=$(curl -s -w '\n%{http_code}' -F "file=@$WORK/cv.pdf;type=application/pdf" "$BASE/api/v1/resumes")
+[ "$(echo "$UPLOAD" | tail -1)" = "201" ] || [ "$(echo "$UPLOAD" | tail -1)" = "409" ] \
+  || fail "upload -> $(echo "$UPLOAD" | tail -1)"
+echo "ok  POST /api/v1/resumes"
+TASK=$(echo "$UPLOAD" | head -1 | python -c "import json,sys; print(json.load(sys.stdin).get('task_id') or '')")
+if [ -n "$TASK" ]; then
+  for _ in $(seq 1 60); do
+    STATUS=$(curl -fsS "$BASE/api/v1/system/tasks/$TASK" | python -c "import json,sys; print(json.load(sys.stdin)['status'])")
+    [ "$STATUS" = "succeeded" ] && break
+    [ "$STATUS" = "failed" ] && fail "resume processing task failed"
+    sleep 0.5
+  done
+  [ "$STATUS" = "succeeded" ] || fail "resume processing did not finish"
+fi
+curl -fsS "$BASE/api/v1/profile" | grep -q '"inference_status":"complete"' || fail "profile not generated"
+echo "ok  profile generated"
 grep -q "Traceback" "$LOG" && fail "traceback in server log"
 echo "smoke test passed"

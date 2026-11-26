@@ -12,10 +12,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import Settings, get_settings
-from app.core.database import configure_database, dispose_engine
+from app.core.database import configure_database, dispose_engine, get_sessionmaker
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
-from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
+from app.core.middleware import (
+    REQUEST_ID_HEADER,
+    BodySizeLimitMiddleware,
+    RequestContextMiddleware,
+)
+from app.core.state import init_services
 from app.routers import api_v1_router, health_router
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
@@ -26,6 +31,8 @@ logger = logging.getLogger(__name__)
 OPENAPI_TAGS = [
     {"name": "health", "description": "Liveness and readiness probes (no auth)."},
     {"name": "settings", "description": "Job-search preferences (single row)."},
+    {"name": "resumes", "description": "Upload, parse, version, edit and download resumes."},
+    {"name": "profile", "description": "The candidate profile generated from your resume."},
     {"name": "system", "description": "App info, scheduled jobs and background tasks."},
 ]
 
@@ -47,6 +54,7 @@ needed. With `AUTH_MODE=api_key`, send `X-API-Key: <key>` or
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     configure_database(settings)
+    init_services(app, settings, sessionmaker=get_sessionmaker())
     app.state.task_manager = BackgroundTaskManager()
     app.state.scheduler = SchedulerService(enabled=settings.scheduler_enabled)
     register_jobs(app.state.scheduler, settings)
@@ -94,6 +102,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-API-Key", REQUEST_ID_HEADER],
         expose_headers=[REQUEST_ID_HEADER],
     )
+    # Uploads are the largest bodies; allow multipart overhead on top.
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_upload_bytes + 1024 * 1024)
     # Added last = outermost: request ids cover CORS and error responses too.
     app.add_middleware(RequestContextMiddleware)
 

@@ -5,8 +5,8 @@ check means do not merge.
 
 | Job | Steps |
 |---|---|
-| Backend | `pip check`, `ruff check`, `ruff format --check`, `pytest` against a real **Postgres 19** (fails if any test is skipped), then `scripts/smoke_backend.sh` (starts `python -m app` and calls the main endpoints) |
-| Frontend | `npm ci`, `typecheck`, `lint`, `next build` |
+| Backend | `pip check`, `ruff check` (incl. bandit security rules), `pip-audit`, `ruff format --check`, `pytest` against a real **Postgres 19** (fails if any test is skipped), then `scripts/smoke_backend.sh` (starts `python -m app`, calls the main endpoints, uploads a resume and waits for the profile) |
+| Frontend | `npm ci`, `npm audit`, `typecheck`, `lint`, `npm test` (Vitest + Testing Library), `next build` |
 
 Warnings are errors in pytest (`filterwarnings = ["error"]`), so a deprecation from
 our code or a dependency upgrade fails CI instead of being ignored.
@@ -26,6 +26,17 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   the Docker images).
 - The phase summary states what is **not** covered.
 
+## Test layout
+
+- `tests/unit/`: pure logic (parsing, validation, sandbox, storage, Claude client with a
+  fake SDK, app wiring). Test documents are generated at runtime by
+  `tests/fixtures/documents.py`, including hostile ones (JavaScript PDFs, macro DOCX,
+  zip bombs, XXE, encrypted PDFs).
+- `tests/integration/`: real Postgres. `db_app` runs each test in a rolled-back
+  transaction; `build_live_app` (resume flows with concurrent background tasks) uses the
+  real pool and empties user tables before and after.
+- Claude is never called in CI: `tests/fakes.py` (`FakeAnthropic`) answers by output schema.
+
 ## Running locally
 
 ```bash
@@ -34,7 +45,7 @@ ruff check app tests migrations && ruff format --check app tests migrations
 TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:<password>@localhost:5432/jobhunter_test pytest
 DATABASE_URL=postgresql://jobhunter:<password>@localhost:5432/jobhunter ../scripts/smoke_backend.sh
 
-cd ../frontend && npm ci && npm run typecheck && npm run lint && npm run build
+cd ../frontend && npm ci && npm run typecheck && npm run lint && npm test && npm run build
 ```
 
 Create the throwaway test database once: `docker compose exec db createdb -U jobhunter jobhunter_test`.

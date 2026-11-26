@@ -4,6 +4,7 @@ Pure ASGI (not BaseHTTPMiddleware) so it does not break streaming responses
 or contextvars propagation.
 """
 
+import json
 import logging
 import re
 import time
@@ -17,6 +18,74 @@ logger = logging.getLogger("app.access")
 
 REQUEST_ID_HEADER = "x-request-id"
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+class BodySizeLimitMiddleware:
+    """Reject request bodies over `max_bytes` before they are buffered or spooled.
+
+    Checks Content-Length up front and counts streamed bytes (chunked uploads),
+    so an oversized upload cannot fill memory or the temp directory.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def _reject(self, send: Send) -> None:
+        body = json.dumps(
+            {
+                "error": {
+                    "code": "file_too_large",
+                    "message": "Request body too large.",
+                    "details": {"max_bytes": self.max_bytes},
+                }
+            }  # fmt: skip
+        ).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [(b"content-type", b"application/json"), (b"connection", b"close")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        length = dict(scope["headers"]).get(b"content-length")
+        if length is not None and length.isdigit() and int(length) > self.max_bytes:
+            await self._reject(send)
+            return
+
+        received = 0
+        response_started = False
+
+        async def limited_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise _BodyTooLargeError
+            return message
+
+        async def tracking_send(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except _BodyTooLargeError:
+            if not response_started:
+                await self._reject(send)
+
+
+class _BodyTooLargeError(Exception):
+    pass
 
 
 class RequestContextMiddleware:

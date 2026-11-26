@@ -1,9 +1,10 @@
 """ORM: candidate_profiles"""
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Index, Numeric, Text, text
+from sqlalchemy import CheckConstraint, DateTime, Index, Numeric, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,6 +45,12 @@ class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     industries: Mapped[list[str]] = mapped_column(
         text_array(), nullable=False, server_default=EMPTY_ARRAY
     )
+    skills: Mapped[list[str]] = mapped_column(
+        text_array(), nullable=False, server_default=EMPTY_ARRAY
+    )
+    inference_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="none")
+    inference_error: Mapped[str | None] = mapped_column(Text)
+    inferred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
 
     resumes = relationship("Resume", back_populates="profile", cascade="all, delete-orphan")
@@ -63,6 +70,10 @@ class CandidateProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "email IS NULL OR position('@' in email) > 1",
             name="ck_candidate_profiles_email",
+        ),
+        CheckConstraint(
+            "inference_status IN ('none', 'pending', 'running', 'complete', 'failed')",
+            name="ck_candidate_profiles_inference_status",
         ),
         Index(
             "uq_candidate_profiles_single_active",

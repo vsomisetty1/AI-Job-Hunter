@@ -3,7 +3,7 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,9 +23,14 @@ class ResumeVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     resume_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False
     )
-    job_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    # original: uploaded file; parsed: structured data; tailored: for a target
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="tailored")
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="tailoring")
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE")
     )
+    target_role: Mapped[str | None] = mapped_column(Text)
+    target_company: Mapped[str | None] = mapped_column(Text)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     content: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=EMPTY_OBJECT
@@ -42,9 +47,32 @@ class ResumeVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("version_number >= 1", name="ck_resume_versions_version"),
         CheckConstraint("jsonb_typeof(content) = 'object'", name="ck_resume_versions_content_json"),
-        UniqueConstraint(
-            "resume_id", "job_id", "version_number", name="uq_resume_versions_resume_job_version"
+        CheckConstraint(
+            "kind IN ('original', 'parsed', 'tailored')", name="ck_resume_versions_kind"
         ),
+        CheckConstraint(
+            "source IN ('upload', 'parser', 'user_edit', 'tailoring')",
+            name="ck_resume_versions_source",
+        ),
+        CheckConstraint(
+            "kind = 'tailored' "
+            "OR (job_id IS NULL AND target_role IS NULL AND target_company IS NULL)",
+            name="ck_resume_versions_untailored_no_target",
+        ),
+        CheckConstraint(
+            "kind <> 'tailored' OR job_id IS NOT NULL OR target_role IS NOT NULL",
+            name="ck_resume_versions_tailored_has_target",
+        ),
+        CheckConstraint(
+            "target_role IS NULL OR btrim(target_role) <> ''",
+            name="ck_resume_versions_target_role",
+        ),
+        CheckConstraint(
+            "target_company IS NULL OR btrim(target_company) <> ''",
+            name="ck_resume_versions_target_company",
+        ),
+        UniqueConstraint("resume_id", "version_number", name="uq_resume_versions_resume_version"),
         UniqueConstraint("id", "job_id", name="uq_resume_versions_id_job"),
         Index("ix_resume_versions_job_id", "job_id"),
+        Index("ix_resume_versions_resume_kind", "resume_id", "kind", text("version_number DESC")),
     )

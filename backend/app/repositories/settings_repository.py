@@ -19,5 +19,6 @@ class SettingsRepository(Repository[Setting]):
                 insert(Setting).values(id=SETTINGS_ID).on_conflict_do_nothing(index_elements=["id"])
             )
             row = await self.get(SETTINGS_ID)
-        assert row is not None
+        if row is None:
+            raise RuntimeError("settings row could not be created")
         return row

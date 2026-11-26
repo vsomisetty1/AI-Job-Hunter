@@ -1,5 +1,6 @@
 """Static validation of backend/schema.sql (no database needed)."""
 
+import hashlib
 import re
 from collections import Counter
 
@@ -123,14 +124,28 @@ def test_status_values_cover_tracking_stages(schema_sql):
     assert "'APPROVAL_MODE'" in schema_sql and "'AUTONOMOUS_MODE'" in schema_sql
 
 
-def test_reference_schema_matches_frozen_migration_sql():
-    """Until revision 0002 exists, schema.sql == migration 0001 SQL.
+# Applied migrations are frozen: editing one would leave existing databases
+# behind. Add a new revision instead. (A brand-new, never-applied revision may
+# be updated here together with its SQL.)
+FROZEN_MIGRATION_SHA256 = {
+    "0001_initial.sql": "48e719df3c1d1eb1d61dd8f3570fcbb6f4ebacf0d07b3518bf1f6c0291f08a74",
+    "0002_resume_intelligence.sql": (
+        "5a09c39a801e7679502259e7cc79eb8d7e2a7f07994897f8972777716d6b8fd0"
+    ),
+}
 
-    Once a second revision is added, replace this with a check against a
-    database migrated to head (see integration/test_migrations.py).
-    """
-    versions = list((BACKEND_DIR / "migrations" / "versions").glob("0*.py"))
-    if len(versions) != 1:
-        return
-    frozen = (BACKEND_DIR / "migrations" / "sql" / "0001_initial.sql").read_text()
-    assert frozen == (BACKEND_DIR / "schema.sql").read_text()
+
+def test_frozen_migrations_unchanged():
+    sql_dir = BACKEND_DIR / "migrations" / "sql"
+    actual = {
+        f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(sql_dir.glob("*.sql"))
+    }
+    assert actual == FROZEN_MIGRATION_SHA256
+
+
+def test_every_revision_has_frozen_sql():
+    versions = sorted((BACKEND_DIR / "migrations" / "versions").glob("0*.py"))
+    assert len(versions) == len(FROZEN_MIGRATION_SHA256)
+    for v, sql_name in zip(versions, sorted(FROZEN_MIGRATION_SHA256), strict=True):
+        assert v.name[:4] == sql_name[:4]
+        assert sql_name in v.read_text(encoding="utf-8")

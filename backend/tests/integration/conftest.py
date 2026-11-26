@@ -8,7 +8,6 @@ so the app's own commit/rollback logic still runs for real.
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import normalize_database_url
 from app.core.database import configure_database, dispose_engine
@@ -30,28 +29,98 @@ def migrated_db_url(test_database_url):
 
 
 @pytest.fixture()
-async def db_app(make_app, migrated_db_url):
-    app = make_app(database_url=migrated_db_url)
-    engine = configure_database(app.state.settings)
+def claude():
+    """Fake Claude: tests queue responses on it (see tests/fakes.py)."""
+    from tests.fakes import FakeAnthropic
+
+    return FakeAnthropic()
+
+
+@pytest.fixture()
+async def db_conn(migrated_db_url, make_app):
+    """One connection inside a transaction that is rolled back after the test."""
+    from app.core.config import Settings
+
+    settings = Settings(_env_file=None, database_url=migrated_db_url, app_env="test")
+    engine = configure_database(settings)
     conn = await engine.connect()
     outer = await conn.begin()
+    # Start every test from empty user data (inside the rolled-back transaction).
+    from sqlalchemy import text
 
-    async def _get_db():
-        async with AsyncSession(
-            bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
-        ) as session:
-            try:
-                yield session
-                await session.commit()
-            except BaseException:
-                await session.rollback()
-                raise
-
-    app.dependency_overrides[get_db] = _get_db
-    app.state.test_connection = conn
+    for table in ("candidate_profiles", "agent_runs", "llm_cache_entries"):
+        await conn.execute(text(f"DELETE FROM {table}"))
     try:
-        yield app
+        yield conn
     finally:
         await outer.rollback()
         await conn.close()
+        await dispose_engine()
+
+
+@pytest.fixture()
+def build_db_app(make_app, migrated_db_url, db_conn):
+    """App whose request sessions AND background sessions share the test transaction."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    def _build(**kwargs):
+        sm = async_sessionmaker(
+            bind=db_conn, expire_on_commit=False, join_transaction_mode="create_savepoint"
+        )
+        app = make_app(database_url=migrated_db_url, sessionmaker=sm, **kwargs)
+
+        async def _get_db():
+            async with sm() as session:
+                try:
+                    yield session
+                    await session.commit()
+                except BaseException:
+                    await session.rollback()
+                    raise
+
+        app.dependency_overrides[get_db] = _get_db
+        app.state.test_connection = db_conn
+        return app
+
+    return _build
+
+
+@pytest.fixture()
+def db_app(build_db_app):
+    return build_db_app()
+
+
+USER_TABLES = ("candidate_profiles", "agent_runs", "llm_cache_entries")
+
+
+@pytest.fixture()
+async def build_live_app(make_app, migrated_db_url):
+    """App on the real connection pool (commits for real), for flows with
+    concurrent background work. User tables are emptied before and after."""
+    from sqlalchemy import text
+
+    from app.core.config import Settings
+    from app.core.database import get_engine, get_sessionmaker
+
+    configure_database(Settings(_env_file=None, database_url=migrated_db_url, app_env="test"))
+
+    async def clean() -> None:
+        async with get_engine().begin() as conn:
+            for table in USER_TABLES:
+                await conn.execute(text(f"DELETE FROM {table}"))
+
+    await clean()
+    apps = []
+
+    def _build(**kwargs):
+        app = make_app(database_url=migrated_db_url, sessionmaker=get_sessionmaker(), **kwargs)
+        apps.append(app)
+        return app
+
+    try:
+        yield _build
+    finally:
+        for app in apps:
+            await app.state.task_manager.shutdown(timeout=30)
+        await clean()
         await dispose_engine()

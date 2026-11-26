@@ -1,4 +1,5 @@
 """Agent 8: Cover letters
 
-PLACEHOLDER - implemented in PHASE 4.
+PLACEHOLDER - implemented in PHASE 7 (needs jobs from Phase 5; stores results
+as tailored resume versions, see ResumeService.create_tailored).
 """

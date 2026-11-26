@@ -62,8 +62,11 @@ jobs:
           pip install -r requirements-dev.txt
           pip check
 
-      - name: Lint
+      - name: Lint (incl. security rules)
         run: ruff check app tests migrations
+
+      - name: Dependency vulnerability audit
+        run: pip-audit -r requirements.txt --progress-spinner off
 
       - name: Format check
         run: ruff format --check app tests migrations
@@ -87,7 +90,7 @@ jobs:
         run: ../scripts/smoke_backend.sh
 
   frontend:
-    name: Frontend (typecheck, lint, build)
+    name: Frontend (typecheck, lint, tests, build)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -107,11 +110,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Dependency vulnerability audit
+        run: npm audit --audit-level=moderate
+
       - name: Typecheck
         run: npm run typecheck
 
       - name: Lint
         run: npm run lint
+
+      - name: Unit tests
+        run: npm test
 
       - name: Build
         run: npm run build

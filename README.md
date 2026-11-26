@@ -17,15 +17,51 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | 1 | Folder structure + project config | Done |
 | 2 | Database (schema, migrations, ORM) | Done |
 | 3 | Backend foundation | Done |
-| 4 | Resume system (Agents 0, 1, 6, 7, 8) | Pending |
+| 4 | Resume intelligence (Agents 0, 1; resume versioning) | Done |
 | 5 | Job discovery (Agents 2, 3, 4) | Pending |
 | 6 | Scoring + learning (Agent 5) | Pending |
-| 7 | Application automation (Agents 9, 10) | Pending |
+| 7 | Application packages + automation (Agents 6, 7, 8, 9, 10) | Pending |
 | 8 | Frontend | Pending |
 | 9 | Deployment | Pending |
 | 10 | Testing | Pending |
 
 Files containing `PLACEHOLDER - implemented in PHASE N` are stubs filled in by that phase.
+
+## Resume intelligence (Phase 4)
+
+Upload a PDF or DOCX on the **Resumes** page (or `POST /api/v1/resumes`). The flow:
+
+1. **Validation** (`app/documents/validation.py`): size limit, type detected from the
+   bytes (not the name), and rejection of active content: PDF JavaScript / launch
+   actions / embedded files / forms, DOCX macros, ActiveX, embedded objects, remote
+   templates, zip bombs. Optional ClamAV scan (`VIRUS_SCANNER=clamd`).
+2. **Sandboxed extraction** (`app/documents/sandbox.py`): text is read in a separate
+   process with memory/CPU limits that is killed on timeout; encrypted PDFs are refused.
+3. **Deterministic parsing** (`app/parsing/`): sections, contact details, experience,
+   education, skills (with alias normalisation), certifications, projects,
+   publications, awards, plus a confidence score per section. No tokens used.
+4. **Claude only when needed** (`app/agents/agent_0_resume_parser.py`): if sections are
+   weak, only those sections' text is sent (the whole resume only for unrecognisable
+   layouts), in the background after upload.
+5. **Profile** (`app/agents/agent_1_profile_inference.py`): years of experience (overlaps
+   merged), career history, seniority, education/certification summaries and skills
+   are computed locally; Claude adds target roles, transferable roles, industries and a
+   career analysis from a compact JSON **without name, contact details or links**.
+6. **Versions**: every resume keeps `original` (the file), `parsed` (parser output and
+   each of your edits) and `tailored` (per role/company/job) versions with history.
+
+Edit parsed data on the resume page (saved as a new version), and edit the profile on
+the **Profile** page: edited fields are remembered and survive "Regenerate" unless you
+untick "Keep my edits".
+
+**Claude usage.** Optional (`ANTHROPIC_API_KEY`). Structured outputs, server-side refusal
+fallback, SDK retries with backoff, and a Postgres cache keyed by prompt version + model +
+input, so unchanged inputs cost nothing. Every call's tokens and USD cost are recorded in
+`agent_runs`. Resume text is treated as untrusted input in every prompt.
+
+**Storage.** `STORAGE_BACKEND=local` (default, `LOCAL_STORAGE_DIR`) or `supabase` (private
+bucket; create it with `supabase/storage.sql`). Downloads go through the API as
+attachments.
 
 ## Backend quick start (Phase 3)
 
@@ -37,7 +73,7 @@ python -m app                                           # binds BACKEND_HOST:BAC
 
 - Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
 - Probes: `GET /health` (liveness), `GET /health/ready` (database + migrations + scheduler)
-- API: `/api/v1/settings` (GET, PATCH), `/api/v1/system/{info,jobs,tasks}`
+- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/system/{info,jobs,tasks}`
 - Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
 - Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
 
@@ -49,6 +85,12 @@ async work goes through `BackgroundTaskManager` (`scheduler/background.py`), and
 agent invocations are recorded in `agent_runs` by `services/pipeline_service.py`.
 
 Tests, lint and smoke test: see [docs/TESTING.md](docs/TESTING.md).
+
+## Frontend
+
+```bash
+cd frontend && npm ci && npm run dev    # http://localhost:3000 (backend on :8000)
+```
 
 ## Database quick start (Phase 2)
 

@@ -33,13 +33,17 @@ def test_database_url() -> str:
 # the scheduler disabled.
 # ---------------------------------------------------------------------------
 @pytest.fixture()
-def make_app():
+def make_app(tmp_path):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.core.config import Settings, get_settings
+    from app.core.state import init_services
     from app.main import create_app
     from app.scheduler.background import BackgroundTaskManager
     from app.scheduler.scheduler import SchedulerService
+    from app.storage import LocalStorage
 
-    def _make(**overrides):
+    def _make(*, claude=None, sessionmaker=None, **overrides):
         overrides.setdefault("database_url", "postgresql://u:p@127.0.0.1:1/unused")
         overrides.setdefault("app_env", "test")
         overrides.setdefault("scheduler_enabled", False)
@@ -48,6 +52,13 @@ def make_app():
         app.dependency_overrides[get_settings] = lambda: settings
         app.state.task_manager = BackgroundTaskManager()
         app.state.scheduler = SchedulerService(enabled=False)
+        init_services(
+            app,
+            settings,
+            sessionmaker=sessionmaker or async_sessionmaker(),  # unbound: no DB in unit tests
+            anthropic_client=claude,
+            storage=LocalStorage(tmp_path / "storage"),
+        )
         return app
 
     return _make

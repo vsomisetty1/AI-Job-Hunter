@@ -61,6 +61,10 @@ BEGIN
     PERFORM pg_temp.expect_error('INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash, is_primary) VALUES (''{p}'', ''y.pdf'', ''pdf'', ''resumes/y.pdf'', ''{h}'', false)', 'unique content hash per profile', jsonb_build_object('p', p::text, 'h', h));
     PERFORM pg_temp.expect_error('INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash, is_primary) VALUES (''{p}'', ''z.pdf'', ''pdf'', ''resumes/z.pdf'', ''{h}'', true)', 'one primary resume', v);
     PERFORM pg_temp.expect_error('INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash) VALUES (''{p}'', ''z.txt'', ''txt'', ''resumes/z.txt'', ''{h}'')', 'file type enum', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash, parse_status) VALUES (''{p}'', ''s.pdf'', ''pdf'', ''resumes/s.pdf'', repeat(''c'', 64), ''parsed'')', 'parsed resume needs parsed_at', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash, parse_status) VALUES (''{p}'', ''s.pdf'', ''pdf'', ''resumes/s.pdf'', repeat(''c'', 64), ''weird'')', 'parse status enum', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash, size_bytes) VALUES (''{p}'', ''s.pdf'', ''pdf'', ''resumes/s.pdf'', repeat(''c'', 64), -1)', 'size non-negative', v);
+    PERFORM pg_temp.expect_error('UPDATE candidate_profiles SET inference_status = ''bogus'' WHERE id = ''{p}''', 'inference status enum', v);
     PERFORM pg_temp.expect_error('INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash) VALUES (gen_random_uuid(), ''z.pdf'', ''pdf'', ''resumes/q.pdf'', ''{h}'')', 'resume needs real profile', v);
 
     -- ---------------------------------------------------------- companies
@@ -86,9 +90,19 @@ BEGIN
     PERFORM pg_temp.expect_error('DELETE FROM companies WHERE id = ''{c}''', 'company delete restricted while jobs exist', v);
 
     -- ---------------------------------------------------------- artifacts
-    INSERT INTO resume_versions (resume_id, job_id) VALUES (r, j1) RETURNING id INTO rv1;
-    INSERT INTO resume_versions (resume_id, job_id) VALUES (r, j2) RETURNING id INTO rv2;
-    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, job_id) VALUES (''{r}'', ''{j}'')', 'unique resume+job+version', jsonb_build_object('r', r::text, 'j', j1::text));
+    INSERT INTO resume_versions (resume_id, job_id, version_number) VALUES (r, j1, 1) RETURNING id INTO rv1;
+    INSERT INTO resume_versions (resume_id, job_id, version_number) VALUES (r, j2, 2) RETURNING id INTO rv2;
+    INSERT INTO resume_versions (resume_id, kind, source, version_number) VALUES (r, 'original', 'upload', 3);
+    INSERT INTO resume_versions (resume_id, kind, source, version_number) VALUES (r, 'parsed', 'parser', 4);
+    INSERT INTO resume_versions (resume_id, kind, target_role, version_number) VALUES (r, 'tailored', 'Data Engineer', 5);
+    v := jsonb_build_object('r', r::text, 'j', j1::text);
+    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, job_id, version_number) VALUES (''{r}'', ''{j}'', 1)', 'unique resume+version', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, kind, version_number) VALUES (''{r}'', ''draft'', 9)', 'version kind enum', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, source, version_number) VALUES (''{r}'', ''magic'', 9)', 'version source enum', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, version_number) VALUES (''{r}'', 9)', 'tailored version needs a target', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, kind, source, job_id, version_number) VALUES (''{r}'', ''parsed'', ''parser'', ''{j}'', 9)', 'parsed version cannot target a job', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, kind, source, target_company, version_number) VALUES (''{r}'', ''original'', ''upload'', ''Acme'', 9)', 'original version cannot target a company', v);
+    PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, kind, target_role, version_number) VALUES (''{r}'', ''tailored'', '' '', 9)', 'blank target role', v);
     PERFORM pg_temp.expect_error('INSERT INTO resume_versions (resume_id, job_id, version_number) VALUES (''{r}'', ''{j}'', 0)', 'version >= 1', jsonb_build_object('r', r::text, 'j', j1::text));
 
     INSERT INTO job_scores (job_id, profile_id, overall_score, interview_probability, salary_score, growth_score, company_score, model, prompt_version)

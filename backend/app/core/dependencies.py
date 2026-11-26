@@ -18,6 +18,9 @@ from app.core.database import get_sessionmaker
 from app.core.security import Principal, get_current_user
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
+from app.services.profile_service import ProfileService
+from app.services.resume_processing import ResumeProcessor
+from app.services.resume_service import ResumeService
 from app.services.settings_service import SettingsService
 
 
@@ -51,3 +54,33 @@ def get_settings_service(db: DbSession) -> SettingsService:
 
 
 SettingsServiceDep = Annotated[SettingsService, Depends(get_settings_service)]
+
+
+# ------------------------------------------------------------ Phase 4 services
+def get_app_settings(request: Request) -> Settings:
+    return request.app.state.settings
+
+
+def get_processor(request: Request) -> ResumeProcessor:
+    return request.app.state.processor
+
+
+def get_resume_service(request: Request, db: DbSession) -> ResumeService:
+    state = request.app.state
+    return ResumeService(
+        db,
+        settings=state.settings,
+        storage=state.storage,
+        scanner=state.scanner,
+        parser=state.parser_agent,
+    )
+
+
+def get_profile_service(db: DbSession) -> ProfileService:
+    return ProfileService(db)
+
+
+AppSettingsDep = Annotated[Settings, Depends(get_app_settings)]
+ProcessorDep = Annotated[ResumeProcessor, Depends(get_processor)]
+ResumeServiceDep = Annotated[ResumeService, Depends(get_resume_service)]
+ProfileServiceDep = Annotated[ProfileService, Depends(get_profile_service)]

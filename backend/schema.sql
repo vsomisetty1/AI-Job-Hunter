@@ -1,9 +1,10 @@
 -- =====================================================================
 -- AI Job Hunter - PostgreSQL schema (requires PostgreSQL 15+)
 --
--- Reference copy of the current schema. Migration 0001 executes the
--- frozen copy in migrations/sql/0001_initial.sql; a unit test keeps the
--- two byte-identical until a second migration exists.
+-- Reference copy of the schema at Alembic head (migrations 0001 + 0002).
+-- Migrations execute frozen SQL files in migrations/sql/; an integration
+-- test checks that this file and the migrated database have the same
+-- catalog (columns, constraints, indexes, triggers).
 -- The SQLAlchemy models in app/models mirror this file.
 --
 -- Conventions
@@ -49,6 +50,11 @@ CREATE TABLE candidate_profiles (
     primary_roles    text[] NOT NULL DEFAULT '{}',
     related_roles    text[] NOT NULL DEFAULT '{}',
     industries       text[] NOT NULL DEFAULT '{}',
+    skills           text[] NOT NULL DEFAULT '{}',
+    -- Profile generation (Agent 1) lifecycle
+    inference_status text NOT NULL DEFAULT 'none',
+    inference_error  text,
+    inferred_at      timestamptz,
     is_active        boolean NOT NULL DEFAULT true,
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now(),
@@ -58,7 +64,9 @@ CREATE TABLE candidate_profiles (
     CONSTRAINT ck_candidate_profiles_email
         CHECK (email IS NULL OR position('@' in email) > 1),
     CONSTRAINT ck_candidate_profiles_profile_json CHECK (jsonb_typeof(profile) = 'object'),
-    CONSTRAINT ck_candidate_profiles_inference_json CHECK (jsonb_typeof(inference) = 'object')
+    CONSTRAINT ck_candidate_profiles_inference_json CHECK (jsonb_typeof(inference) = 'object'),
+    CONSTRAINT ck_candidate_profiles_inference_status
+        CHECK (inference_status IN ('none', 'pending', 'running', 'complete', 'failed'))
 );
 -- MVP is single-user: at most one active profile.
 CREATE UNIQUE INDEX uq_candidate_profiles_single_active
@@ -77,7 +85,11 @@ CREATE TABLE resumes (
     file_type    text NOT NULL,
     storage_path text NOT NULL,
     content_hash text NOT NULL,
+    size_bytes   integer NOT NULL DEFAULT 0,
     raw_text     text,
+    parse_status text NOT NULL DEFAULT 'pending',
+    parse_method text,
+    parse_error  text,
     parsed_at    timestamptz,
     is_primary   boolean NOT NULL DEFAULT false,
     created_at   timestamptz NOT NULL DEFAULT now(),
@@ -87,6 +99,13 @@ CREATE TABLE resumes (
     CONSTRAINT ck_resumes_filename CHECK (btrim(filename) <> ''),
     CONSTRAINT ck_resumes_file_type CHECK (file_type IN ('pdf', 'docx')),
     CONSTRAINT ck_resumes_content_hash CHECK (content_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_resumes_size CHECK (size_bytes >= 0),
+    CONSTRAINT ck_resumes_parse_status
+        CHECK (parse_status IN ('pending', 'parsed', 'failed')),
+    CONSTRAINT ck_resumes_parse_method
+        CHECK (parse_method IS NULL OR parse_method IN ('deterministic', 'llm_assisted')),
+    CONSTRAINT ck_resumes_parsed_has_time
+        CHECK (parse_status <> 'parsed' OR parsed_at IS NOT NULL),
     CONSTRAINT uq_resumes_profile_hash UNIQUE (profile_id, content_hash),
     CONSTRAINT uq_resumes_storage_path UNIQUE (storage_path)
 );
@@ -200,7 +219,13 @@ CREATE TRIGGER trg_jobs_updated
 CREATE TABLE resume_versions (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     resume_id      uuid NOT NULL,
-    job_id         uuid NOT NULL,
+    -- original: the uploaded file; parsed: structured data (parser or user
+    -- edit); tailored: rewritten for a target job / role / company
+    kind           text NOT NULL DEFAULT 'tailored',
+    source         text NOT NULL DEFAULT 'tailoring',
+    job_id         uuid,
+    target_role    text,
+    target_company text,
     version_number integer NOT NULL DEFAULT 1,
     -- Structured resume content used by the PDF/DOCX generators
     content        jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -216,11 +241,25 @@ CREATE TABLE resume_versions (
         FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
     CONSTRAINT ck_resume_versions_version CHECK (version_number >= 1),
     CONSTRAINT ck_resume_versions_content_json CHECK (jsonb_typeof(content) = 'object'),
-    CONSTRAINT uq_resume_versions_resume_job_version UNIQUE (resume_id, job_id, version_number),
+    CONSTRAINT ck_resume_versions_kind CHECK (kind IN ('original', 'parsed', 'tailored')),
+    CONSTRAINT ck_resume_versions_source
+        CHECK (source IN ('upload', 'parser', 'user_edit', 'tailoring')),
+    CONSTRAINT ck_resume_versions_untailored_no_target
+        CHECK (kind = 'tailored'
+               OR (job_id IS NULL AND target_role IS NULL AND target_company IS NULL)),
+    CONSTRAINT ck_resume_versions_tailored_has_target
+        CHECK (kind <> 'tailored' OR job_id IS NOT NULL OR target_role IS NOT NULL),
+    CONSTRAINT ck_resume_versions_target_role
+        CHECK (target_role IS NULL OR btrim(target_role) <> ''),
+    CONSTRAINT ck_resume_versions_target_company
+        CHECK (target_company IS NULL OR btrim(target_company) <> ''),
+    CONSTRAINT uq_resume_versions_resume_version UNIQUE (resume_id, version_number),
     -- Target for the composite FK from applications (same-job guarantee).
     CONSTRAINT uq_resume_versions_id_job UNIQUE (id, job_id)
 );
 CREATE INDEX ix_resume_versions_job_id ON resume_versions (job_id);
+CREATE INDEX ix_resume_versions_resume_kind
+    ON resume_versions (resume_id, kind, version_number DESC);
 CREATE TRIGGER trg_resume_versions_updated
     BEFORE UPDATE ON resume_versions
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
