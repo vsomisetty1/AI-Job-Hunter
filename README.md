@@ -13,7 +13,7 @@ platform-adapter interfaces.
 |---|---|---|
 | 1 | Folder structure + project config | Done |
 | 2 | Database (schema, migrations, ORM) | Done |
-| 3 | Backend foundation | Ready (see docs/PHASE_3_PLAN.md) |
+| 3 | Backend foundation | Done |
 | 4 | Resume system (Agents 0, 1, 6, 7, 8) | Pending |
 | 5 | Job discovery (Agents 2, 3, 4) | Pending |
 | 6 | Scoring + learning (Agent 5) | Pending |
@@ -23,6 +23,30 @@ platform-adapter interfaces.
 | 10 | Testing | Pending |
 
 Files containing `PLACEHOLDER - implemented in PHASE N` are stubs filled in by that phase.
+
+## Backend quick start (Phase 3)
+
+```bash
+cd backend && source .venv/bin/activate
+../scripts/init_db.sh                                   # migrate first
+python -m app                                           # binds BACKEND_HOST:BACKEND_PORT, one worker
+```
+
+- Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
+- Probes: `GET /health` (liveness), `GET /health/ready` (database + migrations + scheduler)
+- API: `/api/v1/settings` (GET, PATCH), `/api/v1/system/{info,jobs,tasks}`
+- Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
+- Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
+
+Layout: `core/` (config, logging, errors, database, auth, DI, middleware) ->
+`routers/` (HTTP only) -> `services/` (business rules) -> `repositories/` (queries,
+never commit) -> `models/`. One request is one transaction (`get_db`); background
+work uses `session_scope()`. Scheduled jobs live in `scheduler/tasks.py`, ad-hoc
+async work goes through `BackgroundTaskManager` (`scheduler/background.py`), and
+agent invocations are recorded in `agent_runs` by `services/pipeline_service.py`.
+
+Tests: `pytest` (unit) plus `TEST_DATABASE_URL=... pytest` for the database-backed
+API and migration tests. Lint: `ruff check app tests migrations`.
 
 ## Database quick start (Phase 2)
 

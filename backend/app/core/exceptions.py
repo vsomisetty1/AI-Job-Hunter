@@ -3,6 +3,7 @@
 Every error response has the same shape:
     {"error": {"code": "...", "message": "...", "details": ...}}
 """
+
 import logging
 from typing import Any
 
@@ -58,8 +59,17 @@ def error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
 
 def _integrity_error_response(exc: IntegrityError) -> tuple[int, str, str, Any]:
     orig = getattr(exc, "orig", None)
-    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
-    constraint = getattr(orig, "constraint_name", None)
+    # asyncpg errors arrive wrapped by SQLAlchemy's DBAPI adapter; the driver
+    # exception (with constraint_name) is its __cause__. psycopg2 uses .diag.
+    driver = getattr(orig, "__cause__", None) or orig
+    sqlstate = (
+        getattr(orig, "sqlstate", None)
+        or getattr(driver, "sqlstate", None)
+        or getattr(orig, "pgcode", None)
+    )
+    constraint = getattr(driver, "constraint_name", None) or getattr(
+        getattr(orig, "diag", None), "constraint_name", None
+    )
     details = {"constraint": constraint} if constraint else None
     if sqlstate == _UNIQUE_VIOLATION:
         return 409, "conflict", "Resource already exists", details

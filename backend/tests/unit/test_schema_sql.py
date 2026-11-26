@@ -108,7 +108,7 @@ def test_audit_fields_and_updated_at_triggers(schema_sql):
 
 
 def test_every_jsonb_column_is_type_checked(schema_sql):
-    for name, t in parse_tables(schema_sql).items():
+    for name, _t in parse_tables(schema_sql).items():
         body = re.search(rf"CREATE TABLE {name} \((.*?)\n\);", schema_sql, re.S).group(1)
         for col in re.findall(r"^\s{4}(\w+)\s+jsonb\b", body, re.M):
             if name == "llm_cache_entries" and col == "response":

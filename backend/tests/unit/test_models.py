@@ -24,7 +24,7 @@ def test_named_constraints_match_schema(schema_sql):
         orm = {
             c.name
             for c in Base.metadata.tables[name].constraints
-            if isinstance(c, (CheckConstraint, UniqueConstraint)) and c.name
+            if isinstance(c, CheckConstraint | UniqueConstraint) and c.name
         }
         sql = {c for c in sql_table.constraints if c.startswith(("ck_", "uq_"))}
         assert orm == sql, name

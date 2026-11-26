@@ -65,7 +65,8 @@ class Setting(Base):
         CheckConstraint("daily_application_cap BETWEEN 0 AND 200", name="ck_settings_cap"),
         CheckConstraint("salary_currency ~ '^[A-Z]{3}$'", name="ck_settings_currency"),
         CheckConstraint(
-            "(salary_min IS NULL OR salary_min >= 0) AND (salary_target IS NULL OR salary_target >= 0)",
+            "(salary_min IS NULL OR salary_min >= 0) AND "
+            "(salary_target IS NULL OR salary_target >= 0)",
             name="ck_settings_salary",
         ),
         CheckConstraint(

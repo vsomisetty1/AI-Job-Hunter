@@ -11,3 +11,12 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "BLE", "RUF100"]
+# B008: FastAPI Depends() in defaults is the documented pattern.
+# ASYNC109: timeout params on BackgroundTaskManager are grace periods, not I/O timeouts.
+ignore = ["B008", "ASYNC109"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]

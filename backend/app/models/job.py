@@ -62,7 +62,8 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "remote_type IN ('remote', 'hybrid', 'onsite', 'unknown')", name="ck_jobs_remote_type"
         ),
         CheckConstraint(
-            "status IN ('new', 'filtered', 'scored', 'shortlisted', 'skipped', 'applied', 'expired')",
+            "status IN ('new', 'filtered', 'scored', 'shortlisted', 'skipped', 'applied', "
+            "'expired')",
             name="ck_jobs_status",
         ),
         CheckConstraint("url ~ '^https?://'", name="ck_jobs_url"),

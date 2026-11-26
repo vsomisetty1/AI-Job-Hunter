@@ -1,6 +1,13 @@
 # Phase 3 plan: backend foundation
 
-Status: ready to start (baseline verified 2026-11-26).
+Status: **done** (2026-11-26). Decisions taken: personal, single-user use; API has
+no auth by default and binds to loopback, with an `api_key` mode (and a single
+`get_current_user` hook) for opening it up later; in-process scheduler, one worker.
+
+Implemented beyond the original table: `core/security.py` (auth), `core/middleware.py`
+(request id + access log), `core/paths.py`, `scheduler/background.py` (background
+task manager), `routers/system.py` (info, scheduled jobs, background tasks), `/api/v1`
+versioning with OpenAPI served under it.
 
 ## Baseline check
 
@@ -53,13 +60,12 @@ agent_runs), the LLM client and storage (Phase 4+).
   422 on invalid input, constraint violation mapped to 409/422, AgentRun bookkeeping.
 - Keep migration tests in their own database: they drop all tables.
 
-## Decisions to confirm before starting
+## Opening it up later
 
-1. **API auth.** The schema is single-user and the plan has no auth: the API is meant to
-   bind to localhost only. If it will ever be reachable from a network (Phase 9 deploy),
-   decide now between a shared API key header and Supabase Auth.
-2. **Scheduler placement.** In-process APScheduler is simplest but requires a single
-   uvicorn worker. Fine for local use; revisit for deployment.
+* Only you, from other devices: set `AUTH_MODE=api_key`, `API_KEY`, `BACKEND_HOST`, put it
+  behind HTTPS, keep one worker (or move the scheduler to its own process).
+* Other users: needs a migration adding an owner to user data (settings is a single
+  row today), Supabase Auth JWTs in `get_current_user`, and row-level security.
 
 ## Running Postgres without Docker (e.g. cloud sessions)
 

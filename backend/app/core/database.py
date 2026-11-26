@@ -3,6 +3,7 @@
 The engine is created lazily from settings so importing this module never
 opens a connection (tests and Alembic import the app freely).
 """
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -36,6 +37,14 @@ def create_engine(settings: Settings) -> AsyncEngine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
     )
+
+
+def configure_database(settings: Settings) -> AsyncEngine:
+    """Bind the module engine to these settings (called from the app lifespan)."""
+    global _engine, _sessionmaker
+    _engine = create_engine(settings)
+    _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
+    return _engine
 
 
 def get_engine() -> AsyncEngine:

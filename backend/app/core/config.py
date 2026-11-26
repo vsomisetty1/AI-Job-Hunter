@@ -3,16 +3,17 @@
 Only DATABASE_URL is required to boot. Integrations (Claude, Supabase) are
 optional here and checked by the features that use them.
 """
+
 from functools import lru_cache
-from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.core.paths import BACKEND_DIR, REPO_ROOT
+
 # Repo-root .env first, then backend/.env (later files win).
-_BACKEND_DIR = Path(__file__).resolve().parents[2]
-_ENV_FILES = (_BACKEND_DIR.parent / ".env", _BACKEND_DIR / ".env")
+_ENV_FILES = (REPO_ROOT / ".env", BACKEND_DIR / ".env")
 
 
 def normalize_database_url(url: str) -> str:
@@ -21,9 +22,14 @@ def normalize_database_url(url: str) -> str:
     Accepts postgres://, postgresql://, postgresql+psycopg2:// and
     postgresql+asyncpg:// (Supabase hands out the bare forms).
     """
-    for prefix in ("postgresql+asyncpg://", "postgresql+psycopg2://", "postgresql://", "postgres://"):
+    for prefix in (
+        "postgresql+asyncpg://",
+        "postgresql+psycopg2://",
+        "postgresql://",
+        "postgres://",
+    ):
         if url.startswith(prefix):
-            return "postgresql+asyncpg://" + url[len(prefix):]
+            return "postgresql+asyncpg://" + url[len(prefix) :]
     raise ValueError("DATABASE_URL must be a PostgreSQL URL")
 
 
@@ -32,9 +38,20 @@ class Settings(BaseSettings):
         env_file=_ENV_FILES, env_file_encoding="utf-8", extra="ignore", case_sensitive=False
     )
 
+    app_name: str = "AI Job Hunter API"
+    app_version: str = "0.3.0"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
-    # Personal-use app: the API has no auth, so it only listens on loopback.
+    log_json: bool | None = None  # default: JSON in production only
+    api_v1_prefix: str = "/api/v1"
+    docs_enabled: bool = True
+
+    # Single-user auth. "none": every request acts as the owner (loopback only).
+    # "api_key": requests must send X-API-Key or `Authorization: Bearer <key>`.
+    auth_mode: Literal["none", "api_key"] = "none"
+    api_key: SecretStr | None = None
+    owner_name: str = "owner"
+    # Bind address. With AUTH_MODE=none it must be loopback (enforced below).
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     cors_origins: Annotated[list[str], NoDecode] = Field(
@@ -71,6 +88,27 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
         return v
+
+    @model_validator(mode="after")
+    def _check_auth(self) -> "Settings":
+        if self.auth_mode == "api_key":
+            key = self.api_key.get_secret_value() if self.api_key else ""
+            if len(key) < 32:
+                raise ValueError("AUTH_MODE=api_key needs API_KEY of at least 32 characters")
+        elif not self.is_loopback_host:
+            raise ValueError(
+                "AUTH_MODE=none only allows BACKEND_HOST=127.0.0.1/localhost/::1; "
+                "set AUTH_MODE=api_key to listen on other interfaces"
+            )
+        return self
+
+    @property
+    def is_loopback_host(self) -> bool:
+        return self.backend_host in {"127.0.0.1", "localhost", "::1"}
+
+    @property
+    def json_logs(self) -> bool:
+        return self.is_production if self.log_json is None else self.log_json
 
     @property
     def is_production(self) -> bool:

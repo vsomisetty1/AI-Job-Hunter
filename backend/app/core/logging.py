@@ -3,6 +3,7 @@
 Every record carries the current request id (set by the middleware in
 app.main) so a request can be followed through the logs.
 """
+
 import json
 import logging
 import sys
@@ -52,4 +53,6 @@ def configure_logging(level: str = "INFO", json_logs: bool = False) -> None:
         lg = logging.getLogger(name)
         lg.handlers.clear()
         lg.propagate = True
+    # app.core.middleware writes the access log (with request id and timing).
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("apscheduler").setLevel(logging.WARNING)

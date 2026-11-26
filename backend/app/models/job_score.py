@@ -2,7 +2,16 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, SmallInteger, Text, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 

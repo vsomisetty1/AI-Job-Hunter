@@ -11,6 +11,7 @@ pytest.importorskip("sqlalchemy")
 pytest.importorskip("alembic")
 pytest.importorskip("psycopg2")
 
+import psycopg2  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.autogenerate import compare_metadata  # noqa: E402
 from alembic.config import Config  # noqa: E402
@@ -46,7 +47,7 @@ def _run_sql_file(eng, name: str):
         rows = []
         try:
             rows = cur.fetchall()
-        except Exception:  # statement had no result set
+        except psycopg2.ProgrammingError:  # statement had no result set
             pass
         raw.commit()
         return rows
