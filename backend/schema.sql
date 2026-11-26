@@ -1,0 +1,2 @@
+-- Full PostgreSQL schema (constraints + indexes)
+-- PLACEHOLDER - implemented in PHASE 2.
