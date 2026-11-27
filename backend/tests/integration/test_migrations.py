@@ -88,17 +88,16 @@ def test_behavioural_constraints(db):
     assert rows and rows[-1][0] == "behavior checks passed"
 
 
-def test_orm_matches_database_no_structural_drift(db):
-    """No table or column may exist on only one side (ORM vs migrated DB)."""
+def test_orm_matches_database_exactly(db):
+    """ORM vs migrated DB: no difference in tables, columns, types, nullability,
+    server defaults, indexes, unique constraints or foreign keys."""
     eng, _ = db
     with eng.connect() as conn:
-        diffs = compare_metadata(MigrationContext.configure(conn), Base.metadata)
-    structural = {"add_table", "remove_table", "add_column", "remove_column"}
-    flat = []
-    for d in diffs:
-        flat += d if isinstance(d, list) else [d]
-    bad = [d for d in flat if d[0] in structural]
-    assert not bad, bad
+        ctx = MigrationContext.configure(
+            conn, opts={"compare_type": True, "compare_server_default": True}
+        )
+        diffs = compare_metadata(ctx, Base.metadata)
+    assert diffs == [], diffs
 
 
 # ---------------------------------------------------------------------------

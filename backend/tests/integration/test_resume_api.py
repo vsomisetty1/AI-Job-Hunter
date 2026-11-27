@@ -284,6 +284,11 @@ async def test_primary_switch_and_delete(db_app, client_for):
         assert len(stored) == 1
         assert (await c.delete(f"/api/v1/resumes/{b_id}")).status_code == 204
         assert not stored[0].exists()  # file removed with the row
+        # The profile was built from the deleted primary: it is rebuilt from `a`.
+        rebuild = db_app.state.task_manager.list_tasks()[0]
+        assert rebuild.name == "profile-generation"
+        await db_app.state.task_manager.wait(rebuild.id, timeout=60)
+        assert (await c.get("/api/v1/profile")).json()["source_resume_id"] == a_id
         remaining = (await c.get("/api/v1/resumes")).json()
         assert [(x["id"], x["is_primary"]) for x in remaining] == [(a_id, True)]
         assert (await c.get(f"/api/v1/resumes/{b_id}")).status_code == 404
@@ -414,3 +419,69 @@ async def test_reparse_creates_new_version(db_app, client_for):
         versions = (await c.get(f"/api/v1/resumes/{rid}/versions")).json()
     assert [v["kind"] for v in versions] == ["parsed", "parsed", "original"]
     assert versions[0]["change_summary"] == "Re-parsed"
+
+
+async def test_restart_recovers_interrupted_work(db_app, client_for):
+    from app.scheduler.tasks import INTERRUPTED, recover_interrupted_work
+
+    async with client_for(db_app) as c:
+        await wait(db_app, await upload(c))
+        async with get_engine().begin() as conn:
+            await conn.execute(text("UPDATE candidate_profiles SET inference_status = 'running'"))
+            await conn.execute(
+                text("INSERT INTO agent_runs (agent_name, status) VALUES ('stuck', 'running')")
+            )
+        assert await recover_interrupted_work() == {"profiles": 1, "agent_runs": 1}
+        p = (await c.get("/api/v1/profile")).json()
+    assert (p["inference_status"], p["inference_error"]) == ("failed", INTERRUPTED)
+    assert await count(db_app, "SELECT count(*) FROM agent_runs WHERE status = 'running'") == 0
+
+
+async def test_maintenance_prunes_expired_cache_and_old_runs(db_app):
+    from app.scheduler.tasks import run_maintenance
+
+    async with get_engine().begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO llm_cache_entries (cache_key, purpose, model, response, expires_at) "
+                "VALUES (repeat('a', 64), 'x', 'm', '{}', now() - interval '1 day'), "
+                "(repeat('b', 64), 'x', 'm', '{}', now() + interval '1 day'), "
+                "(repeat('c', 64), 'x', 'm', '{}', NULL)"
+            )
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO agent_runs (agent_name, status, started_at, finished_at) VALUES "
+                "('old', 'succeeded', now() - interval '400 days', now() - interval '400 days'), "
+                "('new', 'succeeded', now(), now())"
+            )
+        )
+    result = await run_maintenance(db_app.state.settings)
+    assert result == {"llm_cache_entries": 1, "agent_runs": 1}
+    assert await count(db_app, "SELECT count(*) FROM llm_cache_entries") == 2
+    assert await count(db_app, "SELECT string_agg(agent_name, ',') FROM agent_runs") == "new"
+
+
+async def test_profile_builds_never_overlap(db_app, client_for):
+    """Concurrent regenerations run one at a time (no interleaved writes)."""
+    import asyncio
+
+    processor = db_app.state.processor
+    real_run = processor.profiler.run
+    active = peak = 0
+
+    async def slow_run(*args, **kwargs):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.05)
+        try:
+            return await real_run(*args, **kwargs)
+        finally:
+            active -= 1
+
+    async with client_for(db_app) as c:
+        await wait(db_app, await upload(c))
+    processor.profiler.run = slow_run
+    await asyncio.gather(*(processor.generate_profile() for _ in range(3)))
+    assert peak == 1

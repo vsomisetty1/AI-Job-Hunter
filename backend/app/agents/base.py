@@ -6,8 +6,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agents.runs import AgentRunHandle, track_agent_run
 from app.llm.client import ClaudeClient, LLMResult
-from app.services.pipeline_service import AgentRunHandle, track_agent_run
 
 
 class Agent:

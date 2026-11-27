@@ -9,9 +9,9 @@ Rules that keep it usable as a Claude structured-output schema:
 Dates are strings: "YYYY-MM" or "YYYY", or null.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 PARSER_VERSION = "1.0"
 
@@ -33,6 +33,14 @@ def is_http_url(value: str) -> bool:
     return value.lower().startswith(("http://", "https://"))
 
 
+# Links are stored and shown only as http(s): anything else is dropped (not an
+# error), since parser and Claude output must never fail on a bad link.
+HttpLink = Annotated[
+    str | None, AfterValidator(lambda v: v if v is None or is_http_url(v) else None)
+]
+HttpLinks = Annotated[list[str], AfterValidator(lambda v: [u for u in v if is_http_url(u)])]
+
+
 class _Model(BaseModel):
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
@@ -42,20 +50,10 @@ class ContactInfo(_Model):
     email: str | None = None
     phone: str | None = None
     location: str | None = None
-    linkedin: str | None = Field(default=None, description="LinkedIn profile URL")
-    github: str | None = Field(default=None, description="GitHub profile URL")
-    portfolio: str | None = Field(default=None, description="Personal website / portfolio URL")
-    other_links: list[str] = Field(default_factory=list)
-
-    @field_validator("linkedin", "github", "portfolio")
-    @classmethod
-    def _http_only(cls, v: str | None) -> str | None:
-        return v if v is None or is_http_url(v) else None
-
-    @field_validator("other_links")
-    @classmethod
-    def _http_only_list(cls, v: list[str]) -> list[str]:
-        return [u for u in v if is_http_url(u)]
+    linkedin: HttpLink = Field(default=None, description="LinkedIn profile URL")
+    github: HttpLink = Field(default=None, description="GitHub profile URL")
+    portfolio: HttpLink = Field(default=None, description="Personal website / portfolio URL")
+    other_links: HttpLinks = Field(default_factory=list)
 
 
 class ExperienceEntry(_Model):
@@ -90,12 +88,7 @@ class CertificationEntry(_Model):
 class ProjectEntry(_Model):
     name: str
     description: str | None = None
-    url: str | None = None
-
-    @field_validator("url")
-    @classmethod
-    def _http_only(cls, v: str | None) -> str | None:
-        return v if v is None or is_http_url(v) else None
+    url: HttpLink = None
 
     technologies: list[str] = Field(default_factory=list)
     bullets: list[str] = Field(default_factory=list)
@@ -105,12 +98,7 @@ class PublicationEntry(_Model):
     title: str
     venue: str | None = None
     date: str | None = None
-    url: str | None = None
-
-    @field_validator("url")
-    @classmethod
-    def _http_only(cls, v: str | None) -> str | None:
-        return v if v is None or is_http_url(v) else None
+    url: HttpLink = None
 
 
 class AwardEntry(_Model):

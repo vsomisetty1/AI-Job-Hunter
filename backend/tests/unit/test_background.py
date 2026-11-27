@@ -86,4 +86,4 @@ async def test_history_is_bounded():
     for i in range(6):
         await mgr.wait(mgr.submit(f"t{i}", noop).id, timeout=1)
     mgr.submit("last", noop)
-    assert len(mgr.list()) <= 4
+    assert len(mgr.list_tasks()) <= 4

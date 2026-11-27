@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.bootstrap import init_services
 from app.core.config import Settings, get_settings
 from app.core.database import configure_database, dispose_engine, get_sessionmaker
 from app.core.exceptions import register_exception_handlers
@@ -20,11 +21,10 @@ from app.core.middleware import (
     BodySizeLimitMiddleware,
     RequestContextMiddleware,
 )
-from app.core.state import init_services
 from app.routers import api_v1_router, health_router
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
-from app.scheduler.tasks import register_jobs
+from app.scheduler.tasks import recover_interrupted_work, register_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings
     configure_database(settings)
     init_services(app, settings, sessionmaker=get_sessionmaker())
+    try:
+        await recover_interrupted_work()
+    except Exception:  # database down: start anyway; /health/ready reports it
+        logger.exception("could not recover interrupted work at startup")
     app.state.task_manager = BackgroundTaskManager()
     app.state.scheduler = SchedulerService(enabled=settings.scheduler_enabled)
     register_jobs(app.state.scheduler, settings)
@@ -117,7 +121,7 @@ def __getattr__(name: str) -> FastAPI:
     # `app` is built on first access (uvicorn app.main:app), so importing this
     # module in tests does not require DATABASE_URL or configure logging.
     if name == "app":
-        global app
-        app = create_app()
-        return app
+        instance = create_app()
+        globals()["app"] = instance  # later lookups skip __getattr__
+        return instance
     raise AttributeError(name)

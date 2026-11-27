@@ -4,6 +4,7 @@ import logging
 
 import httpx
 from storage3 import AsyncStorageClient
+from storage3._async.file_api import AsyncBucketProxy
 from storage3.exceptions import StorageApiError
 
 from app.storage.base import StorageError, StorageNotFoundError, check_path
@@ -23,7 +24,7 @@ class SupabaseStorage:
             http_client=httpx.AsyncClient(headers=headers, timeout=timeout, follow_redirects=False),
         )
 
-    def _bucket(self):  # storage3 bucket proxy
+    def _bucket(self) -> AsyncBucketProxy:
         return self._client.from_(self.bucket)
 
     async def put(self, path: str, data: bytes, content_type: str) -> None:
@@ -42,7 +43,7 @@ class SupabaseStorage:
 
     async def get(self, path: str) -> bytes:
         try:
-            return await self._bucket().download(check_path(path))
+            return bytes(await self._bucket().download(check_path(path)))
         except StorageApiError as exc:
             if str(getattr(exc, "status", "")) in {"400", "404"}:
                 raise StorageNotFoundError("Stored file not found.") from exc

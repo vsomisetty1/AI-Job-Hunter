@@ -6,9 +6,10 @@ Needs TEST_DATABASE_URL (see tests/conftest.py); skipped otherwise.
 import pytest
 from sqlalchemy import delete, select, text
 
+from app.agents.runs import AgentRunHandle, track_agent_run
 from app.core.database import get_sessionmaker
 from app.models.agent_run import AgentRun
-from app.services.pipeline_service import AgentRunHandle, PipelineService, track_agent_run
+from app.services.pipeline_service import PipelineService
 
 
 async def test_readiness_reports_database_and_migrations(db_app, client_for):
@@ -89,7 +90,7 @@ async def test_database_check_violation_maps_to_422(db_app, client_for):
     """If validation is ever bypassed, the DB CHECK still wins and maps to 422."""
     from fastapi import Depends
 
-    from app.core.dependencies import get_db, get_settings_service
+    from app.dependencies import get_db, get_settings_service
     from app.services.settings_service import SettingsService
 
     class Unchecked(SettingsService):

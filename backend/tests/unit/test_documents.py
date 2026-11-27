@@ -245,3 +245,39 @@ def test_docx_external_entities_are_not_resolved():
     except Exception:  # noqa: BLE001 - rejecting the file is also safe
         return
     assert not any(socket.gethostname() in line["text"] for line in result["lines"])
+
+
+def test_resource_limits_are_best_effort(monkeypatch):
+    """Platforms that reject a limit (macOS RLIMIT_AS, containers) still extract."""
+    import resource
+
+    from app.documents import extract_worker
+
+    def refuse(*_args):
+        raise ValueError("not allowed")
+
+    monkeypatch.setattr(resource, "setrlimit", refuse)
+    assert extract_worker._limit_resources(512, 5) == []
+    result = extract_worker._extract_pdf(d.make_pdf(), 20)
+    assert result["ok"] and result["lines"]
+
+
+def test_extract_worker_imports_without_resource_module(monkeypatch):
+    """Windows has no `resource` module: the worker must still import and run."""
+    import builtins
+    import importlib
+
+    import app.documents.extract_worker as worker
+
+    real_import = builtins.__import__
+
+    def no_resource(name, *args, **kwargs):
+        if name == "resource":
+            raise ImportError("no resource on this platform")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_resource)
+    reloaded = importlib.reload(worker)
+    assert reloaded._limit_resources(512, 5) == []
+    monkeypatch.undo()
+    importlib.reload(worker)

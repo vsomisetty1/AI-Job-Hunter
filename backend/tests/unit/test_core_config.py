@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -64,3 +66,26 @@ def test_json_logs_default_follows_environment():
     assert make(app_env="production").json_logs is True
     assert make(app_env="development").json_logs is False
     assert make(app_env="development", log_json=True).json_logs is True
+
+
+def test_env_example_is_valid_and_safe(monkeypatch):
+    """The shipped template loads as-is (inline comments, empty optional values)."""
+    from app.core.paths import REPO_ROOT
+
+    for key in list(os.environ):
+        if key.isupper() and key in Settings.model_fields.keys() | {
+            k.upper() for k in Settings.model_fields
+        }:
+            monkeypatch.delenv(key, raising=False)
+    s = Settings(_env_file=REPO_ROOT / ".env.example")
+    assert s.database_url == "postgresql+asyncpg://jobhunter:change_me@localhost:5432/jobhunter"
+    assert s.cors_origins == ["http://localhost:3000", "http://127.0.0.1:3000"]
+    assert s.auth_mode == "none" and s.backend_host == "127.0.0.1"
+    assert not s.llm_enabled  # empty ANTHROPIC_API_KEY means rule-based mode
+    assert s.storage_backend == "local" and s.virus_scanner == "none"
+    assert s.claude_effort_analysis == "low" and s.max_upload_mb == 10
+
+
+def test_database_password_not_in_repr():
+    s = make(database_url="postgresql://u:hunter2@h:5432/d")
+    assert "hunter2" not in repr(s)

@@ -129,7 +129,7 @@ class ProfileService:
                 if kind == "col":
                     columns[target] = _column_value(field, value)
                     if field == "years_of_experience":
-                        columns["experience_level"] = experience_level(value)
+                        columns["experience_level"] = experience_level(columns[target])
                 elif kind == "profile":
                     data[target] = value
                 else:
@@ -173,7 +173,7 @@ class ProfileService:
             if column in CONTACT_COLUMNS and not value:
                 continue  # a resume without e.g. a phone number does not erase it
             columns[column] = value
-        years = columns.get("years_experience", profile.years_experience)
+        years: Decimal | None = columns.get("years_experience", profile.years_experience)
         columns["experience_level"] = experience_level(years)
 
         data = build.profile.model_copy(deep=True)

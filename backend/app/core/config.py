@@ -55,10 +55,11 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
     cors_origins: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["http://localhost:3000"]
+        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
     )
 
-    database_url: str
+    # repr=False: the URL holds the database password; keep it out of reprs and logs.
+    database_url: str = Field(repr=False)
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_echo: bool = False
@@ -76,6 +77,8 @@ class Settings(BaseSettings):
     # Server-side refusal fallback (routes a declined request to another model).
     claude_refusal_fallback: bool = True
     llm_cache_ttl_days: int = Field(default=30, ge=0)  # 0 = never expires
+    # agent_runs older than this are deleted by the daily maintenance job.
+    agent_run_retention_days: int = Field(default=180, ge=1)
 
     # Resume uploads
     max_upload_mb: float = Field(default=10.0, gt=0, le=50)
@@ -166,4 +169,4 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]  (values come from the environment)
+    return Settings()  # values come from the environment / .env

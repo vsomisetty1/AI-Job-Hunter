@@ -121,14 +121,10 @@ def total_months(
             continue
         intervals.append((s, e))
     intervals.sort()
-    total, cur_s, cur_e = 0, None, None
+    merged: list[list[int]] = []
     for s, e in intervals:
-        if cur_e is None or s > cur_e + 1:
-            if cur_e is not None:
-                total += cur_e - cur_s + 1
-            cur_s, cur_e = s, e
+        if merged and s <= merged[-1][1] + 1:
+            merged[-1][1] = max(merged[-1][1], e)
         else:
-            cur_e = max(cur_e, e)
-    if cur_e is not None:
-        total += cur_e - cur_s + 1
-    return total
+            merged.append([s, e])
+    return sum(e - s + 1 for s, e in merged)

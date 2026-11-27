@@ -8,13 +8,13 @@ Transaction rule: one request = one unit of work. Repositories only flush;
 """
 
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.database import get_sessionmaker
+from app.core.database import session_scope
 from app.core.security import Principal, get_current_user
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
@@ -25,21 +25,16 @@ from app.services.settings_service import SettingsService
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
-    async with get_sessionmaker()() as session:
-        try:
-            yield session
-            await session.commit()
-        except BaseException:
-            await session.rollback()
-            raise
+    async with session_scope() as session:
+        yield session
 
 
 def get_task_manager(request: Request) -> BackgroundTaskManager:
-    return request.app.state.task_manager
+    return cast(BackgroundTaskManager, request.app.state.task_manager)
 
 
 def get_scheduler(request: Request) -> SchedulerService:
-    return request.app.state.scheduler
+    return cast(SchedulerService, request.app.state.scheduler)
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -58,11 +53,11 @@ SettingsServiceDep = Annotated[SettingsService, Depends(get_settings_service)]
 
 # ------------------------------------------------------------ Phase 4 services
 def get_app_settings(request: Request) -> Settings:
-    return request.app.state.settings
+    return cast(Settings, request.app.state.settings)
 
 
 def get_processor(request: Request) -> ResumeProcessor:
-    return request.app.state.processor
+    return cast(ResumeProcessor, request.app.state.processor)
 
 
 def get_resume_service(request: Request, db: DbSession) -> ResumeService:

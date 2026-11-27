@@ -21,7 +21,7 @@ env:
 
 jobs:
   backend:
-    name: Backend (lint, tests, smoke)
+    name: Backend (lint, types, tests, smoke)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -70,6 +70,9 @@ jobs:
 
       - name: Format check
         run: ruff format --check app tests migrations
+
+      - name: Type check (mypy --strict)
+        run: mypy
 
       - name: Create test database
         run: psql -h localhost -U jobhunter -d jobhunter -c "CREATE DATABASE jobhunter_test"

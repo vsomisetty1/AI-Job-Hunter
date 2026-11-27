@@ -2,11 +2,12 @@
 
 import logging
 import uuid
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, Response, UploadFile, status
 
-from app.core.dependencies import (
+from app.dependencies import (
     AppSettingsDep,
     DbSession,
     ProcessorDep,
@@ -34,7 +35,9 @@ from app.services.resume_service import ResumeService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/resumes", tags=["resumes"], responses=ERROR_RESPONSES)
-NOT_FOUND = {404: {"model": ErrorResponse, "description": "Resume or version not found"}}
+NOT_FOUND: dict[int | str, dict[str, Any]] = {
+    404: {"model": ErrorResponse, "description": "Resume or version not found"}
+}
 
 
 async def _detail(service: ResumeService, resume: Resume) -> ResumeDetail:
@@ -91,7 +94,7 @@ async def upload_resume(
 
 @router.get("", response_model=list[ResumeRead], summary="List resumes")
 async def list_resumes(service: ResumeServiceDep) -> list[ResumeRead]:
-    return [ResumeRead.model_validate(r) for r in await service.list()]
+    return [ResumeRead.model_validate(r) for r in await service.list_resumes()]
 
 
 @router.get("/{resume_id}", response_model=ResumeDetail, summary="Resume with parsed data",
@@ -104,10 +107,25 @@ async def get_resume(resume_id: uuid.UUID, service: ResumeServiceDep) -> ResumeD
     "/{resume_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a resume",
     responses=NOT_FOUND,
 )  # fmt: skip
-async def delete_resume(resume_id: uuid.UUID, service: ResumeServiceDep, db: DbSession) -> Response:
-    path = await service.delete(resume_id)
+async def delete_resume(
+    resume_id: uuid.UUID,
+    service: ResumeServiceDep,
+    profiles: ProfileServiceDep,
+    db: DbSession,
+    tasks: TaskManagerDep,
+    processor: ProcessorDep,
+) -> Response:
+    path, promoted = await service.delete(resume_id)
+    if promoted is not None:
+        await profiles.mark("pending")
     await db.commit()
     await service.delete_file(path)  # after commit: never delete a file still referenced
+    if promoted is not None:  # the profile was built from the deleted resume
+        tasks.submit(
+            "profile-generation",
+            lambda: processor.generate_profile(resume_id=promoted),
+            dedupe_key=PROFILE_TASK_KEY,
+        )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

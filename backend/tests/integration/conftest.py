@@ -11,7 +11,7 @@ from alembic.config import Config
 
 from app.core.config import normalize_database_url
 from app.core.database import configure_database, dispose_engine
-from app.core.dependencies import get_db
+from app.dependencies import get_db
 from tests.conftest import BACKEND_DIR
 
 

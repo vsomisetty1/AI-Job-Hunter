@@ -7,6 +7,7 @@ sections worth sending to Claude; everything else never leaves the machine.
 
 import re
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 
 from app.documents.sandbox import ExtractedDocument, ExtractedLine
@@ -54,7 +55,7 @@ def _score_education(r: ParsedResume, present: bool) -> float:
     return len(good) / len(r.education)
 
 
-def _score_list(items: list, present: bool) -> float:
+def _score_list(items: Sequence[object], present: bool) -> float:
     return 1.0 if items or not present else 0.0
 
 
@@ -162,9 +163,12 @@ def weak_sections(result: ParseResult) -> list[SectionName] | None:
     if result.resume.meta.confidence < WHOLE_DOCUMENT_THRESHOLD:
         return None
     weak: list[SectionName] = []
-    for name in ("contact", "experience", "education", "certifications", "projects",
-                 "publications", "awards"):  # fmt: skip
+    candidates: tuple[SectionName, ...] = (
+        "contact", "experience", "education", "certifications", "projects", "publications",
+        "awards",
+    )  # fmt: skip
+    for name in candidates:
         present = name == "contact" or name in result.sections
         if present and result.scores.get(name, 1.0) < WEAK_THRESHOLD:
-            weak.append(name)  # type: ignore[arg-type]
+            weak.append(name)
     return weak

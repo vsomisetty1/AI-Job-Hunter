@@ -142,7 +142,7 @@ class ResumeService:
             raise NotFoundError("Resume not found", {"resume_id": str(resume_id)})
         return resume
 
-    async def list(self) -> list[Resume]:
+    async def list_resumes(self) -> list[Resume]:
         profile = await self.profiles.get_active()
         return [] if profile is None else list(await self.resumes.list_for_profile(profile.id))
 
@@ -233,18 +233,22 @@ class ResumeService:
                 raise NotFoundError("Job not found", {"job_id": str(payload.job_id)}) from exc
             raise
 
-    async def delete(self, resume_id: uuid.UUID) -> str:
-        """Delete the row (versions cascade). Returns the storage path to remove
-        after the transaction commits."""
+    async def delete(self, resume_id: uuid.UUID) -> tuple[str, uuid.UUID | None]:
+        """Delete the row (versions cascade).
+
+        Returns the storage path to remove after the transaction commits, and
+        the id of the resume promoted to primary (if the primary was deleted).
+        """
         resume = await self.get(resume_id)
         path, was_primary, profile_id = resume.storage_path, resume.is_primary, resume.profile_id
         await self.resumes.delete(resume)
+        promoted = None
         if was_primary:
             # Promote the most recent remaining resume.
             remaining = await self.resumes.list_for_profile(profile_id)
             if remaining:
-                await self.resumes.update(remaining[0], {"is_primary": True})
-        return path
+                promoted = (await self.resumes.update(remaining[0], {"is_primary": True})).id
+        return path, promoted
 
     async def delete_file(self, path: str) -> None:
         await self._delete_file_quietly(path)

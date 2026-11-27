@@ -33,7 +33,7 @@ Build in this order; each layer only depends on the ones above it.
 | 2 | `app/core/logging.py` | JSON logs in production, readable logs in development; request-id contextvar. |
 | 3 | `app/core/exceptions.py` | `AppError` base (`NotFoundError`, `ConflictError`, `ValidationError`) + handlers returning one error envelope. Map `IntegrityError` (CHECK/FK violations) to 409/422 instead of 500. |
 | 4 | `app/core/database.py` | Async engine + `async_sessionmaker(expire_on_commit=False)`; `pool_pre_ping`. If the URL points at a Supabase pooler (port 6543 / pgbouncer), pass `connect_args={"statement_cache_size": 0}`, since asyncpg prepared statements break under transaction pooling. |
-| 5 | `app/core/dependencies.py` | `get_db()` (session per request, commit on success, rollback on error), `get_settings` dependency. |
+| 5 | `app/dependencies.py` (moved from `core/` in the Phase 4 audit) | `get_db()` (session per request, commit on success, rollback on error), `get_settings` dependency. |
 | 6 | `app/utils/hashing.py` | `sha256_hex(text)` (matches the `^[0-9a-f]{64}$` CHECKs, e.g. `application_answers.question_hash`), stable JSON hashing for LLM cache keys. |
 | 7 | `app/utils/text.py` | whitespace/unicode normalisation, `truncate`, slugify (shared by later dedup/normalizer work). |
 | 8 | `app/schemas/common.py` | `ORMModel` base (`from_attributes=True`), error envelope, pagination params/response. |
@@ -45,7 +45,7 @@ Build in this order; each layer only depends on the ones above it.
 | 14 | `app/routers/settings.py` | `GET /api/settings`, `PATCH /api/settings`. |
 | 15 | `app/scheduler/scheduler.py` | APScheduler `AsyncIOScheduler`, started/stopped from the FastAPI lifespan; disabled in tests via config. Single-process only (document: run one backend worker). |
 | 16 | `app/scheduler/tasks.py` | Discovery job registered every `DISCOVERY_INTERVAL_MINUTES`, honours `settings.discovery_enabled`; body is a logged no-op until Phase 5. `max_instances=1`, `coalesce=True`. |
-| 17 | `app/services/pipeline_service.py` | Orchestration skeleton: stage interface + `AgentRun` bookkeeping (insert `running`, finish with status/duration/error). Stages are wired in Phases 4-7. |
+| 17 | `app/services/pipeline_service.py` | Orchestration skeleton: stage interface + `AgentRun` bookkeeping (now `app/agents/runs.py`) (insert `running`, finish with status/duration/error). Stages are wired in Phases 4-7. |
 | 18 | `app/main.py` | App factory, lifespan (engine dispose, scheduler), CORS from config, exception handlers, include only the health and settings routers. |
 
 Out of scope: the other routers (jobs, applications, resumes, profile, insights,

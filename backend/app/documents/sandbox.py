@@ -21,11 +21,15 @@ from app.documents.validation import FileRejectedError, FileType
 
 logger = logging.getLogger(__name__)
 
-# forkserver: children fork from a small, clean server process, not from the
-# API process (no inherited sockets, threads or database connections).
-_CTX = mp.get_context("forkserver")
-# Load the parsers once in the fork server so each extraction starts fast.
-_CTX.set_forkserver_preload(["app.documents.extract_worker", "pdfplumber", "docx"])
+# forkserver (Linux, macOS): children fork from a small, clean server process,
+# not from the API process (no inherited sockets, threads or DB connections),
+# with the parsers preloaded so each extraction starts fast.
+# spawn (Windows): a fresh interpreter per extraction; slower but equally isolated.
+if "forkserver" in mp.get_all_start_methods():
+    _CTX: Any = mp.get_context("forkserver")
+    _CTX.set_forkserver_preload(["app.documents.extract_worker", "pdfplumber", "docx"])
+else:  # pragma: no cover - Windows
+    _CTX = mp.get_context("spawn")
 
 
 class ExtractionTimeoutError(AppError):
@@ -75,7 +79,8 @@ def _run_blocking(
         if not parent_conn.poll(timeout):
             raise ExtractionTimeoutError("Reading the file took too long.")
         try:
-            return parent_conn.recv()
+            result: dict[str, Any] = parent_conn.recv()
+            return result
         except EOFError:
             # Child died without answering (killed by a resource limit, crashed).
             return {"ok": False, "error": "too_complex", "message": "worker exited"}
@@ -106,7 +111,7 @@ async def extract_document(
         if error == "unreadable":
             logger.warning("extraction failed: %s", result.get("message"))
         message = (
-            result.get("message")
+            str(result.get("message"))
             if error == "too_many_pages"
             else _ERROR_MESSAGES.get(error, _ERROR_MESSAGES["unreadable"])
         )

@@ -5,7 +5,7 @@ check means do not merge.
 
 | Job | Steps |
 |---|---|
-| Backend | `pip check`, `ruff check` (incl. bandit security rules), `pip-audit`, `ruff format --check`, `pytest` against a real **Postgres 19** (fails if any test is skipped), then `scripts/smoke_backend.sh` (starts `python -m app`, calls the main endpoints, uploads a resume and waits for the profile) |
+| Backend | `pip check`, `ruff check` (incl. bandit security rules), `pip-audit`, `ruff format --check`, `mypy --strict`, `pytest` against a real **Postgres 19** (fails if any test is skipped), then `scripts/smoke_backend.sh` (starts `python -m app`, calls the main endpoints, uploads a resume and waits for the profile) |
 | Frontend | `npm ci`, `npm audit`, `typecheck`, `lint`, `npm test` (Vitest + Testing Library), `next build` |
 
 Warnings are errors in pytest (`filterwarnings = ["error"]`), so a deprecation from
@@ -28,6 +28,8 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
 
 ## Test layout
 
+- `tests/unit/test_architecture.py`: layer rules, no package import cycles, every module
+  imports on its own.
 - `tests/unit/`: pure logic (parsing, validation, sandbox, storage, Claude client with a
   fake SDK, app wiring). Test documents are generated at runtime by
   `tests/fixtures/documents.py`, including hostile ones (JavaScript PDFs, macro DOCX,
@@ -41,7 +43,7 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
 
 ```bash
 cd backend && source .venv/bin/activate
-ruff check app tests migrations && ruff format --check app tests migrations
+ruff check app tests migrations && ruff format --check app tests migrations && mypy
 TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:<password>@localhost:5432/jobhunter_test pytest
 DATABASE_URL=postgresql://jobhunter:<password>@localhost:5432/jobhunter ../scripts/smoke_backend.sh
 

@@ -43,7 +43,7 @@ class SchedulerService:
 
     @property
     def running(self) -> bool:
-        return self._scheduler.running
+        return bool(self._scheduler.running)
 
     def add_interval_job(
         self,

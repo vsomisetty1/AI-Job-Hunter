@@ -1,8 +1,10 @@
 """Candidate profile router."""
 
+from typing import Any
+
 from fastapi import APIRouter, status
 
-from app.core.dependencies import DbSession, ProcessorDep, ProfileServiceDep, TaskManagerDep
+from app.dependencies import DbSession, ProcessorDep, ProfileServiceDep, TaskManagerDep
 from app.schemas.candidate_profile import (
     CandidateProfileRead,
     CandidateProfileUpdate,
@@ -14,7 +16,9 @@ from app.services.profile_service import to_read
 from app.services.resume_processing import PROFILE_TASK_KEY
 
 router = APIRouter(prefix="/profile", tags=["profile"], responses=ERROR_RESPONSES)
-NO_PROFILE = {404: {"model": ErrorResponse, "description": "No profile yet"}}
+NO_PROFILE: dict[int | str, dict[str, Any]] = {
+    404: {"model": ErrorResponse, "description": "No profile yet"}
+}
 
 
 @router.get(

@@ -101,7 +101,7 @@ class BackgroundTaskManager:
     def get(self, task_id: str) -> TaskInfo | None:
         return self._infos.get(task_id)
 
-    def list(self) -> list[TaskInfo]:
+    def list_tasks(self) -> list[TaskInfo]:
         return list(reversed(self._infos.values()))
 
     async def wait(self, task_id: str, timeout: float | None = None) -> TaskInfo:

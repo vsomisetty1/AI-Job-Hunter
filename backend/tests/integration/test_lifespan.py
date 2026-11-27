@@ -5,7 +5,7 @@ state by hand; this test runs the real lifespan.
 """
 
 from app.core import database
-from app.scheduler.tasks import DISCOVERY_JOB_ID
+from app.scheduler.tasks import DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID
 
 
 async def test_lifespan_starts_and_stops_everything(make_app, client_for, migrated_db_url):
@@ -14,7 +14,7 @@ async def test_lifespan_starts_and_stops_everything(make_app, client_for, migrat
     async with app.router.lifespan_context(app):
         scheduler = app.state.scheduler
         assert scheduler.running
-        assert [j.id for j in scheduler.list_jobs()] == [DISCOVERY_JOB_ID]
+        assert sorted(j.id for j in scheduler.list_jobs()) == [DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID]
         assert database._engine is not None
         assert str(database._engine.url).startswith("postgresql+asyncpg://")
 

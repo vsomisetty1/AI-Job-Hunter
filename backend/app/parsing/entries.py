@@ -128,15 +128,16 @@ def group_blocks(lines: list[str]) -> list[_Block]:
                 blocks.append(_Block())
             blocks[-1].body.append(strip_bullet(text))
             continue
-        cur = blocks[-1] if blocks else None
-        has_date = find_date_range(text) is not None
-        cur_has_date = cur is not None and any(find_date_range(h) for h in cur.header)
-        continuation = (
-            cur is not None and cur.body and text[:1].islower()  # wrapped bullet text
-        )
-        if continuation:
+        if not blocks:
+            blocks.append(_Block(header=[text]))
+            continue
+        cur = blocks[-1]
+        if cur.body and text[:1].islower():  # wrapped bullet text
             cur.body[-1] = f"{cur.body[-1]} {text}"
-        elif cur is None or cur.body or (has_date and cur_has_date) or len(cur.header) >= 4:
+            continue
+        has_date = find_date_range(text) is not None
+        cur_has_date = any(find_date_range(h) for h in cur.header)
+        if cur.body or (has_date and cur_has_date) or len(cur.header) >= 4:
             blocks.append(_Block(header=[text]))
         else:
             cur.header.append(text)
@@ -344,7 +345,7 @@ def parse_certifications(lines: list[str]) -> list[CertificationEntry]:
 
 
 def parse_projects(lines: list[str]) -> list[ProjectEntry]:
-    out = []
+    out: list[ProjectEntry] = []
     for block in group_blocks(lines):
         if not block.header:
             if out:

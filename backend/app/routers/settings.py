@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.core.dependencies import SettingsServiceDep
+from app.dependencies import SettingsServiceDep
 from app.schemas.common import ERROR_RESPONSES
 from app.schemas.settings import SettingsRead, SettingsUpdate
 

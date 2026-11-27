@@ -63,12 +63,22 @@ input, so unchanged inputs cost nothing. Every call's tokens and USD cost are re
 bucket; create it with `supabase/storage.sql`). Downloads go through the API as
 attachments.
 
-## Backend quick start (Phase 3)
+## Run it locally
+
+Needs Docker, Python 3.14 and Node 26.
 
 ```bash
+cp .env.example .env      # then set POSTGRES_PASSWORD (same password inside DATABASE_URL)
+./scripts/dev.sh          # database + migrations + backend + frontend; first run installs deps
+```
+
+Open http://localhost:3000. To run the pieces by hand instead:
+
+```bash
+docker compose up -d --wait db
 cd backend && source .venv/bin/activate
-../scripts/init_db.sh                                   # migrate first
-python -m app                                           # binds BACKEND_HOST:BACKEND_PORT, one worker
+../scripts/init_db.sh     # migrate first
+python -m app             # binds BACKEND_HOST:BACKEND_PORT, one worker
 ```
 
 - Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
@@ -77,12 +87,24 @@ python -m app                                           # binds BACKEND_HOST:BAC
 - Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
 - Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
 
-Layout: `core/` (config, logging, errors, database, auth, DI, middleware) ->
-`routers/` (HTTP only) -> `services/` (business rules) -> `repositories/` (queries,
-never commit) -> `models/`. One request is one transaction (`get_db`); background
-work uses `session_scope()`. Scheduled jobs live in `scheduler/tasks.py`, ad-hoc
-async work goes through `BackgroundTaskManager` (`scheduler/background.py`), and
-agent invocations are recorded in `agent_runs` by `services/pipeline_service.py`.
+Layout (imports only point down; `tests/unit/test_architecture.py` enforces it):
+
+| Layer | Packages |
+|---|---|
+| composition root | `main.py`, `bootstrap.py` (builds services on startup), `__main__.py` |
+| HTTP | `routers/`, `dependencies.py` (dependency injection) |
+| jobs | `scheduler/` (scheduled jobs, background task manager) |
+| business logic | `services/`, `learning/` |
+| workers | `agents/` (parser, profile; `agents/runs.py` records `agent_runs`) |
+| queries | `repositories/` (never commit) |
+| adapters | `documents/`, `storage/`, `llm/`, `parsing/`, `connectors/`, `automation/` |
+| foundation | `core/` (config, logging, errors, database, auth, middleware) |
+| data | `models/`, `schemas/`, `utils/` |
+
+One request is one transaction (`get_db`); background work uses `session_scope()` and
+never holds a transaction open during a Claude call. At startup, work interrupted by a
+previous shutdown is marked failed/cancelled; a daily job prunes expired Claude cache
+entries and `agent_runs` older than `AGENT_RUN_RETENTION_DAYS` (180).
 
 Tests, lint and smoke test: see [docs/TESTING.md](docs/TESTING.md).
 

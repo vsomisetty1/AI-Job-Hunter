@@ -17,23 +17,42 @@ or {"ok": False, "error": "<code>", "message": str}
 from __future__ import annotations
 
 import io
-import resource
 import statistics
+import sys
 import traceback
 from typing import Any
 
 _MAX_LINES = 5000
 
 
-def _limit_resources(memory_mb: int, cpu_seconds: int) -> None:
-    mem = memory_mb * 1024 * 1024
-    resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-    resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1))
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+def _limit_resources(memory_mb: int, cpu_seconds: int) -> list[str]:
+    """Apply OS resource limits where the platform supports them.
+
+    Linux enforces all of them. macOS does not enforce RLIMIT_AS (and may
+    reject it); Windows has no `resource` module. The parent's hard timeout
+    and kill apply everywhere, so isolation never depends on these.
+    Returns the limits that were applied.
+    """
     try:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
-    except ValueError:  # pragma: no cover - platform specific
-        pass
+        import resource
+    except ImportError:  # Windows
+        return []
+    mem = memory_mb * 1024 * 1024
+    wanted = [
+        ("cpu", resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds + 1)),
+        ("core", resource.RLIMIT_CORE, (0, 0)),
+        ("nofile", resource.RLIMIT_NOFILE, (64, 64)),
+    ]
+    if sys.platform.startswith("linux"):
+        wanted.insert(0, ("memory", resource.RLIMIT_AS, (mem, mem)))
+    applied = []
+    for name, limit, value in wanted:
+        try:
+            resource.setrlimit(limit, value)
+            applied.append(name)
+        except ValueError, OSError:  # not permitted / not supported here
+            pass
+    return applied
 
 
 # --------------------------------------------------------------------- PDF

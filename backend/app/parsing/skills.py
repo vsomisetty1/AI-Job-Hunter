@@ -119,10 +119,6 @@ def normalize_skill(raw: str) -> str:
     return _alias_index().get(s.lower(), s)
 
 
-def is_known_skill(raw: str) -> bool:
-    return clean_skill(raw).lower() in _alias_index()
-
-
 def split_skill_list(line: str) -> tuple[str | None, list[str]]:
     """("Languages", ["Python", "Go"]) for "Languages: Python, Go"; category may be None."""
     category = None

@@ -6,8 +6,8 @@ from typing import Any
 from fastapi import APIRouter, status
 from pydantic import BaseModel
 
-from app.core.dependencies import CurrentUser, SchedulerDep, SettingsDep, TaskManagerDep
 from app.core.exceptions import NotFoundError
+from app.dependencies import CurrentUser, SchedulerDep, SettingsDep, TaskManagerDep
 from app.scheduler.background import TaskStatus
 from app.schemas.common import ERROR_RESPONSES, ErrorResponse
 
@@ -71,7 +71,7 @@ async def run_job(job_id: str, scheduler: SchedulerDep) -> ScheduledJob:
 
 @router.get("/tasks", response_model=list[BackgroundTask], summary="List background tasks")
 async def list_tasks(tasks: TaskManagerDep) -> list[BackgroundTask]:
-    return [BackgroundTask.model_validate(t, from_attributes=True) for t in tasks.list()]
+    return [BackgroundTask.model_validate(t, from_attributes=True) for t in tasks.list_tasks()]
 
 
 @router.get(

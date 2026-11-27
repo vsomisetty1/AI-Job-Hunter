@@ -36,8 +36,8 @@ def test_database_url() -> str:
 def make_app(tmp_path):
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
+    from app.bootstrap import init_services
     from app.core.config import Settings, get_settings
-    from app.core.state import init_services
     from app.main import create_app
     from app.scheduler.background import BackgroundTaskManager
     from app.scheduler.scheduler import SchedulerService

@@ -5,10 +5,11 @@ short transactions; Claude calls happen between them, never while a
 transaction is open.
 """
 
+import asyncio
 import logging
 import uuid
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,8 +17,9 @@ from app.agents.agent_0_resume_parser import ResumeParserAgent
 from app.agents.agent_1_profile_inference import ProfileInferenceAgent
 from app.core.config import Settings
 from app.core.exceptions import NotFoundError
-from app.documents.sandbox import extract_document
+from app.documents.sandbox import ExtractedDocument, extract_document
 from app.documents.scanner import NoopScanner
+from app.documents.validation import FileType
 from app.repositories.candidate_profile_repository import CandidateProfileRepository
 from app.repositories.resume_repository import ResumeRepository, ResumeVersionRepository
 from app.schemas.parsed_resume import ParsedResume
@@ -37,6 +39,9 @@ class ResumeProcessor:
     parser: ResumeParserAgent
     profiler: ProfileInferenceAgent
     sessionmaker: async_sessionmaker[AsyncSession]
+    # One profile build at a time: a manual "regenerate" and an upload-triggered
+    # build must not interleave their writes.
+    _profile_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
     def _resume_service(self, session: AsyncSession) -> ResumeService:
         return ResumeService(
@@ -44,15 +49,15 @@ class ResumeProcessor:
             parser=self.parser,
         )  # fmt: skip
 
-    async def _extract(self, resume_id: uuid.UUID):
+    async def _extract(self, resume_id: uuid.UUID) -> ExtractedDocument:
         async with self.sessionmaker() as session:
             resume = await ResumeRepository(session).get(resume_id)
             if resume is None:
                 raise NotFoundError("Resume not found", {"resume_id": str(resume_id)})
-            path, file_type = resume.storage_path, resume.file_type
+            path, file_type = resume.storage_path, cast(FileType, resume.file_type)
         data = await self.storage.get(path)
         return await extract_document(
-            file_type,  # type: ignore[arg-type]
+            file_type,
             data,
             max_pages=self.settings.max_pdf_pages,
             timeout_seconds=self.settings.parse_timeout_seconds,
@@ -102,6 +107,14 @@ class ResumeProcessor:
         resume_id: uuid.UUID | None = None,
         keep_overrides: bool = True,
         use_llm: bool = True,
+    ) -> dict[str, Any]:
+        async with self._profile_lock:
+            return await self._generate_profile(
+                resume_id=resume_id, keep_overrides=keep_overrides, use_llm=use_llm
+            )
+
+    async def _generate_profile(
+        self, *, resume_id: uuid.UUID | None, keep_overrides: bool, use_llm: bool
     ) -> dict[str, Any]:
         async with self.sessionmaker() as session, session.begin():
             profile = await CandidateProfileRepository(session).get_active()

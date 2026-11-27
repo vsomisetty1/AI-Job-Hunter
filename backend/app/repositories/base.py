@@ -30,16 +30,16 @@ class Repository[ModelT: Base]:
             raise NotFoundError(f"{self.model.__name__} not found", {"id": str(id_)})
         return obj
 
-    def base_query(self) -> Select[tuple[ModelT]]:
+    def base_query(self) -> Select[ModelT]:
         return select(self.model)
 
-    async def list(
-        self, *, limit: int = 50, offset: int = 0, query: Select[tuple[ModelT]] | None = None
+    async def list_page(
+        self, *, limit: int = 50, offset: int = 0, query: Select[ModelT] | None = None
     ) -> Sequence[ModelT]:
         stmt = (query if query is not None else self.base_query()).limit(limit).offset(offset)
         return (await self.session.scalars(stmt)).all()
 
-    async def count(self, query: Select[tuple[ModelT]] | None = None) -> int:
+    async def count(self, query: Select[ModelT] | None = None) -> int:
         stmt = query if query is not None else self.base_query()
         total = await self.session.scalar(
             select(func.count()).select_from(stmt.order_by(None).subquery())
