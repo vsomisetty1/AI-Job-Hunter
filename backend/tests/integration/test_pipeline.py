@@ -187,7 +187,8 @@ async def test_rule_scores_are_stored_with_breakdown_and_skip_unchanged(app):
     assert row["model"] is None and row["prompt_version"] is None
     assert row["input_tokens"] == row["output_tokens"] == 0
     assert row["interview_probability"] is None and row["growth_score"] is None
-    assert row["skills_score"] == 100 and row["relevance_score"] == 100
+    # 3 of 3 skills: near the top, but shrunk slightly for the small sample.
+    assert 90 <= row["skills_score"] < 100 and row["relevance_score"] == 100
     assert row["salary_score"] == 100 and row["location_score"] == 100
     assert row["matched_skills"] == ["Python", "PostgreSQL", "AWS"]
     assert set(row["breakdown"]["components"]) == {

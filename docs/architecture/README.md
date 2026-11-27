@@ -18,3 +18,4 @@ ADR that supersedes the old one; don't rewrite history.
 | [010](ADR-010.md) | Testing and CI strategy |
 | [011](ADR-011.md) | Rule-based filtering and scoring, with optional Claude on a shortlist (Phase 6) |
 | [012](ADR-012.md) | Application packages are built from facts and approved by a person (Phase 7) |
+| [013](ADR-013.md) | Data lifecycle and storage cleanup (MVP validation) |

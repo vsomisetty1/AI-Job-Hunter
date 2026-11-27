@@ -24,6 +24,7 @@ shortlist; this module never calls Claude.
 
 import re
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from rapidfuzz import fuzz
@@ -38,7 +39,7 @@ from app.agents.agent_4_rule_filtering import (
 from app.parsing.skills import AMBIGUOUS, find_skills, normalize_skill
 from app.utils.hashing import hash_json
 
-SCORER_VERSION = "rules-1"
+SCORER_VERSION = "rules-3"
 
 WEIGHTS: dict[str, float] = {
     "skills": 0.35,
@@ -51,6 +52,22 @@ REQUIRED_SKILL_WEIGHT = 2.0
 # Covering this share of the (weighted) skills already counts as a full match:
 # postings list more than any one hire has.
 FULL_SKILL_COVERAGE = 0.8
+# Coverage is shrunk towards 50 % with this much pseudo-weight, so "1 of 1
+# skills" (little evidence) does not score like "9 of 10" (a lot).
+SKILL_PRIOR, SKILL_PRIOR_WEIGHT = 0.5, 4.0
+UNKNOWN_SKILLS_SCORE = 50  # the posting names no known skill: neutral, not ignored
+# Words that name a job function. A posting whose title has one that none of
+# the candidate's roles has ("Sales Engineer" for a software engineer) is a
+# different job, however similar the rest of the title is.
+FUNCTION_WORDS = frozenset({
+    "sales", "marketing", "recruiter", "recruiting", "account", "accountant", "accounting",
+    "legal", "counsel", "attorney", "paralegal", "designer", "finance", "financial", "success",
+    "support", "nurse", "teacher", "writer", "editor", "communications", "partnerships",
+    "procurement", "payroll", "tax", "talent", "brand", "content", "creative", "animator",
+    # platform specialities that a general backend/frontend background does not cover
+    "ios", "android", "embedded", "firmware", "hardware", "mechanical", "electrical", "silicon",
+})  # fmt: skip
+FUNCTION_PENALTY = 0.4
 
 LEVEL_RANK: dict[str, int] = {
     "intern": 0, "entry": 1, "junior": 1, "mid": 2, "senior": 3, "lead": 4, "staff": 4,
@@ -136,9 +153,37 @@ class RuleScore:
 def _mentions(text: str, skill: str) -> bool:
     """A profile skill named in job text. Ambiguous short names ('Go', 'R')
     must appear with the same capitalization, others case-insensitively."""
-    pattern = rf"(?<![\w+#.]){re.escape(skill)}(?![\w+#]|\.\w)"
-    flags = 0 if (skill.lower() in AMBIGUOUS or len(skill) <= 2) else re.IGNORECASE
-    return re.search(pattern, text, flags) is not None
+    return skill in _profile_skills_in(text, (skill,))
+
+
+@lru_cache(maxsize=64)
+def _profile_patterns(
+    skills: tuple[str, ...],
+) -> tuple[re.Pattern[str] | None, re.Pattern[str] | None, dict[str, str]]:
+    """One case-insensitive and one case-sensitive alternation for a profile's
+    skills, so a posting is scanned once instead of once per skill (scoring
+    thousands of postings did 50+ regex searches each)."""
+    exact = [s for s in skills if s.lower() in AMBIGUOUS or len(s) <= 2]
+    loose = [s for s in skills if s not in exact]
+
+    def build(names: list[str], flags: int) -> re.Pattern[str] | None:
+        if not names:
+            return None
+        body = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+        return re.compile(rf"(?<![\w+#.])(?:{body})(?![\w+#]|\.\w)", flags)
+
+    lookup = {s.lower(): s for s in loose} | {s: s for s in exact}
+    return build(loose, re.IGNORECASE), build(exact, 0), lookup
+
+
+def _profile_skills_in(text: str, skills: tuple[str, ...]) -> set[str]:
+    loose, exact, lookup = _profile_patterns(skills)
+    found: set[str] = set()
+    if loose is not None:
+        found |= {lookup[m.group(0).lower()] for m in loose.finditer(text)}
+    if exact is not None:
+        found |= {lookup[m.group(0)] for m in exact.finditer(text)}
+    return found
 
 
 def skills_component(
@@ -150,13 +195,24 @@ def skills_component(
     wanted = list(dict.fromkeys([*required, *find_skills(all_text)]))
     have = {normalize_skill(s).casefold(): normalize_skill(s) for s in profile.skills if s.strip()}
     # Candidate skills the taxonomy does not mine from prose ("Go", custom tools).
+    own = tuple(sorted(have.values()))
+    in_text, in_reqs = _profile_skills_in(all_text, own), _profile_skills_in(req_text, own)
+    known = {w.casefold() for w in wanted}
     for skill in have.values():
-        if skill.casefold() not in {w.casefold() for w in wanted} and _mentions(all_text, skill):
+        if skill.casefold() not in known and skill in in_text:
             wanted.append(skill)
-            if _mentions(req_text, skill):
+            if skill in in_reqs:
                 required.append(skill)
     if not wanted:
-        return Component(None, "The posting names no skills we recognise"), [], []
+        return (
+            Component(
+                UNKNOWN_SKILLS_SCORE,
+                "The posting names no skills we recognise (counted as neutral)",
+                {"unknown": True},
+            ),
+            [],
+            [],
+        )
 
     req = {s.casefold() for s in required}
     weight = {s: (REQUIRED_SKILL_WEIGHT if s.casefold() in req else 1.0) for s in wanted}
@@ -165,8 +221,10 @@ def skills_component(
     # Required skills first in both lists.
     matched.sort(key=lambda s: s.casefold() not in req)
     missing.sort(key=lambda s: s.casefold() not in req)
-    coverage = sum(weight[s] for s in matched) / sum(weight.values())
-    value = min(100, round(100 * coverage / FULL_SKILL_COVERAGE))
+    have_w, total_w = sum(weight[s] for s in matched), sum(weight.values())
+    coverage = have_w / total_w
+    shrunk = (have_w + SKILL_PRIOR * SKILL_PRIOR_WEIGHT) / (total_w + SKILL_PRIOR_WEIGHT)
+    value = min(100, round(100 * shrunk / FULL_SKILL_COVERAGE))
     summary = f"{len(matched)} of {len(wanted)} skills match"
     if missing:
         summary += f"; missing {', '.join(missing[:4])}"
@@ -204,6 +262,16 @@ def relevance_component(job: ScoringJob, profile: ScoringProfile) -> Component:
         if value > best:
             best_role, best = role, value
     value = round(best)
+    title_words = set(clean_title(job.title).split())
+    own = {w for r, _ in candidates for w in clean_title(r).split()}
+    other_function = sorted((title_words & FUNCTION_WORDS) - own)
+    if other_function:
+        value = round(value * FUNCTION_PENALTY)
+        return Component(
+            value,
+            f"A {other_function[0]} role, unlike '{best_role}'",
+            {"best_role": best_role, "similarity": value, "other_function": other_function},
+        )
     quality = "close to" if value >= 80 else "related to" if value >= 55 else "unlike"
     return Component(
         value, f"Title is {quality} '{best_role}'", {"best_role": best_role, "similarity": value}

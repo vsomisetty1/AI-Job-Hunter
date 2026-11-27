@@ -18,6 +18,7 @@ from app.llm.cache import LLMCache
 from app.llm.client import ClaudeClient
 from app.services.discovery_service import DiscoveryService
 from app.services.filtering_service import FilteringService
+from app.services.lifecycle_service import LifecycleService
 from app.services.package_service import PackageGenerator
 from app.services.pipeline_service import JobPipeline
 from app.services.resume_processing import ResumeProcessor
@@ -63,6 +64,9 @@ def init_services(
     app.state.pipeline = JobPipeline(
         app.state.discovery, app.state.filtering, app.state.scoring, sessionmaker
     )
+    # Data lifecycle: package retention and orphaned-file cleanup.
+    app.state.lifecycle = LifecycleService(settings, sessionmaker, storage)
+
     # Phase 7: application packages (Agents 6-9).
     app.state.packages = PackageGenerator(
         sessionmaker,

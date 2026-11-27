@@ -70,16 +70,30 @@ def test_skills_match_required_first_and_weight_them_double():
     assert comp.detail["required"] == ["Python", "PostgreSQL", "Kubernetes"]
     # weights: required 2 (Python, PostgreSQL, Kubernetes), others 1 (Go, AWS)
     assert comp.detail["coverage"] == round(5 / 8, 3)
-    assert comp.score == round(100 * (5 / 8) / 0.8)
+    # Shrunk towards 50 % with 4 units of pseudo-weight: (5 + 2) / (8 + 4).
+    assert comp.score == round(100 * ((5 + 2) / (8 + 4)) / 0.8)
     assert comp.summary == "3 of 5 skills match; missing Kubernetes, AWS"
 
 
-def test_skills_full_coverage_caps_at_100_and_unknown_is_none():
+def test_little_skill_evidence_does_not_score_like_a_lot():
+    one = dataclasses.replace(JOB, description="Python.", requirements=("Python",))
+    many = dataclasses.replace(
+        JOB, description="", requirements=("Python, PostgreSQL, AWS, Docker, Go, Java",)
+    )
+    rich = ScoringProfile(skills=("Python", "PostgreSQL", "AWS", "Docker", "Go", "Java"))
+    one_of_one = skills_component(one, rich)[0].score
+    six_of_six = skills_component(many, rich)[0].score
+    assert one_of_one == round(100 * ((2 + 2) / (2 + 4)) / 0.8)  # 83, not 100
+    assert six_of_six == 100 and one_of_one < six_of_six
+
+
+def test_skills_full_coverage_and_unknown_skills_are_neutral():
     full = ScoringProfile(skills=("Python", "Go", "PostgreSQL", "Kubernetes", "AWS"))
-    assert skills_component(JOB, full)[0].score == 100
+    assert skills_component(JOB, full)[0].score == 100  # capped
     blank = dataclasses.replace(JOB, description="We are a friendly team.", requirements=())
     comp, matched, missing = skills_component(blank, PROFILE)
-    assert comp.score is None and matched == missing == []
+    # No known skills in the posting: neutral, so the job is not ranked on title alone.
+    assert comp.score == 50 and comp.detail == {"unknown": True} and matched == missing == []
 
 
 def test_ambiguous_skills_need_matching_case():
@@ -197,11 +211,21 @@ def test_missing_components_renormalise_the_weights():
     assert result.overall == round(sum(WEIGHTS[n] * v for n, v in known.items()) / 0.9)
 
 
-def test_nothing_known_scores_zero():
+def test_nothing_known_scores_neutral():
     empty = ScoringJob(title="?", company_name="x")
     result = score(empty, ScoringProfile(), ScoringPreferences())
-    assert result.overall == 0 and result.confidence == 0
-    assert result.rationale == "Not enough information to score this job."
+    assert result.overall == 50 and result.confidence == 0.35
+    assert "counted as neutral" in result.rationale
+
+
+def test_a_different_job_function_is_not_a_title_match():
+    sales = dataclasses.replace(JOB, title="Senior Sales Engineer")
+    comp = relevance_component(sales, PROFILE)
+    assert comp.detail["other_function"] == ["sales"]
+    assert comp.score <= 40 and comp.summary.startswith("A sales role")
+    # A function the candidate has done is not penalised.
+    seller = dataclasses.replace(PROFILE, roles=("Sales Engineer",))
+    assert relevance_component(sales, seller).score == 100
 
 
 def test_better_fits_score_higher():
@@ -292,3 +316,8 @@ def test_job_scoring_prompt_marks_the_posting_untrusted():
 @pytest.mark.parametrize(("value", "clamped"), [(-5, 0), (0, 0), (55, 55), (100, 100), (140, 100)])
 def test_claude_scores_are_clamped(value, clamped):
     assert clamp(value) == clamped
+
+
+def test_platform_specialities_are_a_different_job():
+    ios = dataclasses.replace(JOB, title="Senior iOS Engineer")
+    assert relevance_component(ios, PROFILE).detail["other_function"] == ["ios"]

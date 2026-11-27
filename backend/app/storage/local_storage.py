@@ -3,9 +3,10 @@
 import asyncio
 import os
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
-from app.storage.base import StorageError, StorageNotFoundError, check_path
+from app.storage.base import StorageError, StorageNotFoundError, StoredFile, check_path
 
 
 class LocalStorage:
@@ -54,3 +55,18 @@ class LocalStorage:
     async def delete(self, path: str) -> None:
         target = self._resolve(path)
         await asyncio.to_thread(target.unlink, True)
+
+    def _list(self, prefix: str) -> list[StoredFile]:
+        base = self._resolve(prefix)
+        if not base.is_dir():
+            return []
+        out = []
+        for f in base.rglob("*"):
+            if f.is_file() and not f.name.startswith(".upload-"):  # skip half-written temp files
+                st = f.stat()
+                modified = datetime.fromtimestamp(st.st_mtime, UTC)
+                out.append(StoredFile(f.relative_to(self.root).as_posix(), st.st_size, modified))
+        return sorted(out, key=lambda x: x.path)
+
+    async def list_files(self, prefix: str) -> list[StoredFile]:
+        return await asyncio.to_thread(self._list, prefix)

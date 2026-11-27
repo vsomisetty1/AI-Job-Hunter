@@ -118,7 +118,8 @@ async def test_generates_a_complete_package(app, client):
     assert "Kubernetes" not in json.dumps(tr["content"])
     assert tr["tailoring"]["missing_skills"] == ["Kubernetes"]
     assert tr["ats_keywords"] == ["Python", "PostgreSQL", "AWS"]
-    assert {c["section"] for c in tr["changes"]} >= {"skills", "experience", "summary"}
+    # The sample summary already names the role, so it is left as written.
+    assert {c["section"] for c in tr["changes"]} >= {"skills", "experience"}
     assert all(c["reason"] and c["at"] for c in tr["changes"])
     assert pkg["base_resume"]["skills"][0] == "Java"  # the original is untouched
     assert tr["has_pdf"] and tr["has_docx"]
@@ -254,6 +255,17 @@ async def test_review_approve_submit(app, client):
     assert (
         await client.post(f"/api/v1/packages/{pid}/reject", json={"reason": "x"})
     ).status_code == 409
+
+
+async def test_a_package_for_an_expired_job_cannot_be_approved(app, client):
+    ids = await seed()
+    pkg = await generate(app, client, ids["job"])
+    await execute("UPDATE jobs SET status = 'expired', expired_at = now() WHERE id = :id",
+                  id=ids["job"])  # fmt: skip
+    r = await client.post(f"/api/v1/packages/{pkg['id']}/approve")
+    assert r.status_code == 409
+    assert "no longer posted" in r.json()["error"]["message"]
+    assert await fetch("SELECT id FROM applications") == []
 
 
 async def test_reject_withdraws_approval_and_regenerate_supersedes(app, client):

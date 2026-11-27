@@ -112,6 +112,8 @@ API: `/api/v1/jobs` (search, `/stats`, `/{id}`, `/{id}/raw`), `/api/v1/companies
 
 **Check it against the real job boards:** [docs/VALIDATION.md](docs/VALIDATION.md).
 
+**Check packages against your own resume and real postings:** [docs/MVP_VALIDATION.md](docs/MVP_VALIDATION.md) (`scripts/validate_mvp.py`; its output is personal and git-ignored).
+
 ## Filtering and scoring (Phase 6)
 
 Every discovery run continues as one pipeline (`services/pipeline_service.py`):

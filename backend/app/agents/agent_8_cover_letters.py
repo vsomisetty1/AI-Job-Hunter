@@ -21,14 +21,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
 
+from app.agents.agent_1_profile_inference import role_name
 from app.agents.agent_6_resume_tailoring import (
-    LEVEL_WORDS,
     CandidateFacts,
     TailoringJob,
     _join,
 )
 from app.agents.agent_7_resume_generation import LetterDoc
 from app.agents.base import Agent
+from app.agents.relevance import JobTerms, stem, strong_mentions
 from app.agents.truthfulness import Facts, check_text, facts_from, skills_in
 from app.llm.client import LLMError
 from app.llm.prompts.cover_letter import COVER_LETTER
@@ -96,10 +97,34 @@ class CoverLetterResult:
 # Bullets usually start with a past-tense verb ("Built ..."); those read well
 # after "I". Anything else is quoted after a colon instead.
 _IRREGULAR_VERBS = {
-    "built", "led", "ran", "wrote", "cut", "grew", "made", "drove", "won", "set", "kept",
-    "brought", "sold", "taught", "chose", "gave", "found", "began", "took", "held", "spoke",
-    "rebuilt", "rewrote", "oversaw", "undertook", "shipped", "owned",
-}  # fmt: skip
+    "built",
+    "led",
+    "ran",
+    "wrote",
+    "cut",
+    "grew",
+    "made",
+    "drove",
+    "won",
+    "set",
+    "kept",
+    "brought",
+    "sold",
+    "taught",
+    "chose",
+    "gave",
+    "found",
+    "began",
+    "took",
+    "held",
+    "spoke",
+    "rebuilt",
+    "rewrote",
+    "oversaw",
+    "undertook",
+    "shipped",
+    "owned",
+}
 
 
 def _starts_with_verb(bullet: str) -> bool:
@@ -118,25 +143,27 @@ class Evidence:
     label: str  # "Senior Engineer at Acme" or a project name
     text: str
     project: bool = False
+    score: float = 0.0  # relevance to the posting
 
 
-def evidence_items(resume: ParsedResume, wanted: set[str], facts: Facts) -> list[Evidence]:
-    """Resume bullets and projects, most relevant first (stable)."""
-    scored: list[tuple[int, int, Evidence]] = []
+def evidence_items(resume: ParsedResume, terms: JobTerms, facts: Facts) -> list[Evidence]:
+    """Resume bullets and projects, most relevant to this posting first (stable)."""
+    scored: list[tuple[float, int, Evidence]] = []
     order = 0
     for g, role in enumerate(resume.experience):
-        label = " at ".join(x for x in (role.title, role.company) if x)
+        label = " at ".join(x for x in (role_name(role.title or ""), role.company) if x)
         for bullet in role.bullets:
-            relevance = len(skills_in(bullet, facts) & wanted)
-            scored.append((-relevance, order, Evidence(g, label, bullet.strip().rstrip("."))))
+            relevance = terms.score(bullet, facts)
+            item = Evidence(g, label, bullet.strip().rstrip("."), score=relevance)
+            scored.append((-relevance, order, item))
             order += 1
     base = len(resume.experience)
     for k, project in enumerate(resume.projects):
         tech = f", using {_join(project.technologies[:4])}" if project.technologies else ""
         text = project.description or (project.bullets[0] if project.bullets else "")
         line = f"I built {project.name}{tech}" + (f": {text.strip().rstrip('.')}" if text else "")
-        relevance = len(skills_in(line, facts) & wanted)
-        scored.append((-relevance, order, Evidence(base + k, project.name, line, project=True)))
+        relevance = terms.score(line, facts)
+        scored.append((-relevance, order, Evidence(base + k, project.name, line, True, relevance)))
         order += 1
     return [e for *_, e in sorted(scored, key=lambda t: (t[0], t[1]))]
 
@@ -167,62 +194,162 @@ def evidence_sentences(items: list[Evidence]) -> list[str]:
     return out
 
 
+def split_title(title: str) -> tuple[str, str | None]:
+    """'Senior Software Engineer, Agentic Ads Experience' -> (role, team).
+
+    The first comma (or " - " / dash) separates the team; failing that, a
+    trailing parenthesis does. Locations and long tails are not teams."""
+    title = title.strip()
+    role, team = title, None
+    seps = [(title.find(sep), sep) for sep in (",", " - ", " \u2013 ", " \u2014 ") if sep in title]
+    if seps:
+        _, sep = min(seps)  # the earliest separator ends the role
+        role, team = (part.strip() for part in title.split(sep, 1))
+    else:
+        m = re.match(r"^(?P<role>[^()]+?)\s*\((?P<team>[^()]+)\)$", title)
+        if m:
+            role, team = m["role"].strip(), m["team"].strip()
+    if not team or _is_location_like(team) or len(team.split()) > 6:
+        return role, None
+    return role, team
+
+
+def _is_location_like(text: str) -> bool:
+    return bool(re.search(r"(?i)\b(remote|hybrid|on-?site|us|usa|uk|emea|apac|[A-Z]{2})$", text))
+
+
+_GENERIC_TERMS = frozenset({
+    "experience", "years", "strong", "work", "working", "ability", "engineer", "engineering",
+    "software", "data", "develop", "development", "build", "building", "design", "system",
+    "systems", "service", "services", "team", "product", "knowledge",
+})  # fmt: skip
+_PRONOUN_START = re.compile(r"(?i)^(you|we|our|the|this|they|ideal|bonus|nice)\b")
+
+
+def _content_stems(text: str) -> set[str]:
+    return {stem(w) for w in re.findall(r"[a-z][a-z+#-]{3,}", text.lower())} - {
+        stem(g) for g in _GENERIC_TERMS
+    }
+
+
+def best_requirement(requirements: tuple[str, ...], evidence_text: str) -> str | None:
+    """A short posting requirement that shares at least two specific words with
+    the quoted experience. Sentences addressed to the reader ("You have ...")
+    read badly as a quote and are skipped."""
+    have = _content_stems(evidence_text)
+    best, best_n = None, 1
+    for req in requirements:
+        words = req.split()
+        if not 3 <= len(words) <= 20 or _PRONOUN_START.match(req.strip()):
+            continue
+        shared = _content_stems(req) & have
+        if len(shared) > best_n:
+            best, best_n = req.strip().rstrip(".;"), len(shared)
+    return best
+
+
+def relevant_certifications(resume: ParsedResume, terms: JobTerms, facts: Facts) -> list[str]:
+    """Certificates naming a skill the job asks for, or two of its specific words."""
+    out = []
+    job_terms = set(terms.terms)
+    for c in resume.certifications:
+        names_skill = bool(skills_in(c.name, facts) & terms.skills)
+        if names_skill or len(_content_stems(c.name) & job_terms) >= 2:
+            out.append(c.name + (f" ({c.issuer})" if c.issuer else ""))
+    return out[:2]
+
+
 def compose(inp: CoverLetterInput) -> CoverLetterResult:
+    """A letter built only from the posting and the resume (see module docstring)."""
     job, cand, resume = inp.job, inp.candidate, inp.resume
     facts = facts_from(resume, extra_skills=cand.skills)
     skills = [s for s in inp.matched_skills if facts.has_skill(s)]
-    wanted = {s.casefold() for s in skills}
+    terms = JobTerms.from_job(job.title, job.requirements, job.description, skills)
     used: list[str] = []
 
-    opening = f"I am applying for the {job.title} role at {job.company_name}."
-    level = LEVEL_WORDS.get(cand.seniority or "")
-    role_name = cand.roles[0] if cand.roles else None
+    role, team = split_title(job.title)
+    team_part = ""
+    if team:
+        team_part = f" on the {team}" + ("" if team.lower().endswith("team") else " team")
+    opening = f"I am applying for the {role} role{team_part} at {job.company_name}."
     years = (
         int(cand.years_experience) if cand.years_experience and cand.years_experience >= 1 else None
     )
-    if role_name:
-        who = (
-            f"{level} {role_name}"
-            if level and level.lower() not in role_name.lower()
-            else role_name
-        )
-        line = f"I am a {who}" + (f" with {years}+ years of experience" if years else "")
-        latest = resume.experience[0] if resume.experience else None
-        if latest and latest.title and latest.company:
-            verb = "currently" if latest.is_current else "most recently"
-            line += f", {verb} working as {latest.title} at {latest.company}"
-        opening += " " + _sentence(line)
-        used.append("profile: role, level, years of experience")
-
-    evidence = evidence_items(resume, wanted, facts)
-    if skills:
-        lead = (
-            f"Your posting asks for {_join(skills[:4])}, and "
-            f"{'these are' if len(skills[:4]) > 1 else 'this is'} part of my day-to-day work."
-        )
-        used.append(f"matched skills: {', '.join(skills[:4])}")
-    else:
-        lead = "Here is the experience I would bring to the role."
-    n_evidence = min(2, len(evidence))
-
-    focus = skills[0] if skills else None
-    fit = (
-        f"The {job.title} role is a strong match for the work I do best"
-        + (f", particularly {focus}" if focus else "")
-        + f", and I would be glad to bring that experience to {job.company_name}."
+    latest = resume.experience[0] if resume.experience else None
+    when = "currently" if latest and latest.is_current else "most recently"
+    role_at = (
+        f"{role_name(latest.title)} at {latest.company}"
+        if latest and latest.title and latest.company
+        else None
     )
+    if years and role_at:
+        opening += f" I have {years}+ years of professional experience, {when} as {role_at}."
+    elif years:
+        opening += f" I have {years}+ years of professional experience."
+    elif role_at:
+        opening += f" I am {when} working as {role_at}."
+    used.append("profile: years of experience, latest role")
+
+    evidence = evidence_items(resume, terms, facts)
+    bullets_text = "\n".join(b for r in resume.experience for b in r.bullets)
+    # Only skills a bullet describes using: "for future GenAI integration" or
+    # "AI-ready platforms" is intent, and must not become "here is where I used it".
+    evidenced = [s for s in skills if strong_mentions(bullets_text, s)]
+    if evidenced:
+        them = "them" if len(evidenced[:4]) > 1 else "it"
+        lead = f"Your posting asks for {_join(evidenced[:4])}; here is where I have used {them}."
+        used.append(f"skills with evidence in the resume: {', '.join(evidenced[:4])}")
+    else:
+        lead = "Here is the experience most relevant to the role."
+    # The lines right after the lead must show the skills it names: the best
+    # line for each named skill goes first (MVP validation found a letter that
+    # promised Java and then quoted two lines without it).
+    shows: list[Evidence] = []
+    for skill in evidenced[:4]:
+        best = next((e for e in evidence if strong_mentions(e.text, skill)), None)
+        if best is not None and best not in shows:
+            shows.append(best)
+    evidence = shows + [e for e in evidence if e not in shows]
+
+    certs = relevant_certifications(resume, terms, facts)
+    cert_line = (
+        f"I also hold the {_join(certs)} certification{'s' if len(certs) > 1 else ''}."
+        if certs
+        else ""
+    )
+    if certs:
+        used.append(f"certifications: {', '.join(certs)}")
     closing = (
-        f"Thank you for considering my application. I would welcome the chance to talk about "
-        f"how I can contribute to {job.company_name}."
+        "Thank you for considering my application. I would welcome the chance to discuss the "
+        f"{role} role with you."
     )
 
     def build(k: int) -> list[str]:
-        middle = " ".join([lead, *evidence_sentences(evidence[:k])])
-        return [opening, middle, fit, closing]
+        chosen = evidence[:k]
+        first = [e for e in chosen if e in shows]
+        rest = [e for e in chosen if e not in shows]
+        middle = " ".join([lead, *evidence_sentences(first), *evidence_sentences(rest)])
+        req = best_requirement(job.requirements, " ".join(e.text for e in chosen))
+        fit_parts = []
+        if req:
+            fit_parts.append(
+                f"Your posting looks for \u201c{req}\u201d, which is the kind of work described "
+                "above."
+            )
+        if cert_line:
+            fit_parts.append(cert_line)
+        paragraphs = [opening, middle]
+        if fit_parts:
+            paragraphs.append(" ".join(fit_parts))
+        return [*paragraphs, closing]
 
+    # Lengthen only with experience that relates to the posting: padding with
+    # unrelated bullets reads worse than a slightly short letter.
+    relevant = sum(1 for e in evidence if e.score > 0)
+    n_evidence = min(max(2, len(shows)), len(evidence))
     paragraphs = build(n_evidence)
     while word_count(" ".join(paragraphs)) < MIN_WORDS and n_evidence < min(
-        MAX_EVIDENCE, len(evidence)
+        MAX_EVIDENCE, max(relevant, 2), len(evidence)
     ):
         n_evidence += 1
         paragraphs = build(n_evidence)
@@ -231,7 +358,10 @@ def compose(inp: CoverLetterInput) -> CoverLetterResult:
         paragraphs = build(n_evidence)
     used += [f"resume ({e.label}): {e.text}" for e in evidence[:n_evidence]]
 
-    notes = ["The sentence about why the role fits is general; make it personal before sending."]
+    notes = [
+        f"Add a sentence on why you want to work at {job.company_name}: the letter only states "
+        "facts from your resume and the posting."
+    ]
     words = word_count(" ".join(paragraphs))
     if words < MIN_WORDS:
         notes.append(

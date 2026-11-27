@@ -92,10 +92,8 @@ def test_tailoring_reorders_and_respells_without_adding_anything():
     assert out.experience[0].bullets[0].startswith("Built billing APIs in Python")
     assert out.experience[1].bullets[0].startswith("Ran PostgreSQL")
     assert [p.name for p in out.projects] == ["pgwatch", "dotfiles"]
-    assert out.summary == (
-        "Senior Backend Engineer with 10+ years of experience in Python, PostgreSQL and AWS. "
-        "Backend engineer who builds reliable payment systems."
-    )
+    # The summary already says who the candidate is: no second headline sentence.
+    assert out.summary == "Backend engineer who builds reliable payment systems."
     assert result.matched_skills == ["Python", "PostgreSQL", "AWS"]
     assert result.missing_skills == ["Kubernetes"]
     assert "Kubernetes" not in out.model_dump_json()
@@ -118,7 +116,6 @@ def test_every_change_is_recorded_with_reason_section_and_time():
         ("skills", "order"),
         ("experience", "bullets"),
         ("projects", "order"),
-        ("summary", "text"),
     }
     for c in result.changes:
         assert c["reason"] and c["at"] == NOW.isoformat() and "before" in c and "after" in c
@@ -126,7 +123,7 @@ def test_every_change_is_recorded_with_reason_section_and_time():
     assert (rename["before"], rename["after"]) == ("postgres", "PostgreSQL")
     role = next(c for c in result.changes if c["section"] == "experience")
     assert role["item"] == "Senior Software Engineer at Acme Payments"
-    assert result.summary == "Tailored by reordering: 8 changes."
+    assert result.summary == "Tailored by reordering: 7 changes."
     data = result.tailoring_json()
     assert data["method"] == "rules" and data["missing_skills"] == ["Kubernetes"]
 
@@ -145,26 +142,33 @@ def test_nothing_to_change_and_no_matching_skills():
 
 
 def test_headline_uses_only_profile_facts():
+    # The role as the candidate holds or targets it: no level word is added
+    # (a "Senior" the candidate never held under that title would be invented).
     assert headline_for(SAMPLE_JOB, SAMPLE_CANDIDATE, ["Python"]) == (
-        "Senior Backend Engineer with 10+ years of experience in Python."
+        "Backend Engineer with 10+ years of experience in Python."
     )
     junior = CandidateFacts(roles=("Data Analyst",), seniority="junior")
-    assert headline_for(SAMPLE_JOB, junior, []) == "Junior Data Analyst."
+    assert headline_for(SAMPLE_JOB, junior, []) == "Data Analyst."
     assert headline_for(SAMPLE_JOB, CandidateFacts(), ["Python"]) is None
 
 
-def test_headline_does_not_contradict_years_stated_in_the_summary():
-    resume = sample_resume(summary="Backend engineer with 7+ years building payment systems.")
+def test_headline_only_when_the_summary_does_not_say_who_the_candidate_is():
+    no_summary = tailor(sample_resume(summary=None), SAMPLE_JOB, SAMPLE_CANDIDATE, now=NOW)
+    assert no_summary.content.summary == (
+        "Backend Engineer with 10+ years of experience in Python, PostgreSQL and AWS."
+    )
+    # A summary without a role noun gets the headline, without a second years figure.
+    resume = sample_resume(summary="Builds reliable payment systems, 7+ years in fintech.")
     result = tailor(resume, SAMPLE_JOB, SAMPLE_CANDIDATE, now=NOW)
     assert result.content.summary == (
-        "Senior Backend Engineer experienced in Python, PostgreSQL and AWS. "
-        "Backend engineer with 7+ years building payment systems."
+        "Backend Engineer experienced in Python, PostgreSQL and AWS. "
+        "Builds reliable payment systems, 7+ years in fintech."
     )
 
 
 def test_headline_dropped_if_a_profile_role_names_an_unknown_skill():
     cand = dataclasses.replace(SAMPLE_CANDIDATE, roles=("Kubernetes Engineer",))
-    result = tailor(sample_resume(), SAMPLE_JOB, cand, now=NOW)
+    result = tailor(sample_resume(summary=None), SAMPLE_JOB, cand, now=NOW)
     assert "Kubernetes" not in (result.content.summary or "")
 
 

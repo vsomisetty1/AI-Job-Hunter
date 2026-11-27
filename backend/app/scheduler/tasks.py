@@ -19,6 +19,7 @@ from app.repositories.package_repository import PackageRepository
 from app.repositories.settings_repository import SettingsRepository
 from app.scheduler.scheduler import SchedulerService
 from app.services.discovery_service import DiscoveryInProgressError
+from app.services.lifecycle_service import LifecycleService
 from app.services.pipeline_service import JobPipeline
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,12 @@ async def run_discovery_cycle(pipeline: JobPipeline) -> dict[str, object]:
     return {"skipped": False} | {k: v for k, v in summary.items() if k != "details"}
 
 
-def register_jobs(scheduler: SchedulerService, settings: Settings, pipeline: JobPipeline) -> None:
+def register_jobs(
+    scheduler: SchedulerService,
+    settings: Settings,
+    pipeline: JobPipeline,
+    lifecycle: LifecycleService | None = None,
+) -> None:
     async def discover() -> dict[str, object]:
         return await run_discovery_cycle(pipeline)
 
@@ -110,9 +116,18 @@ def register_jobs(scheduler: SchedulerService, settings: Settings, pipeline: Job
         name="Discover, deduplicate, filter and score jobs",
     )
 
-    async def maintenance() -> dict[str, int]:
-        return await run_maintenance(settings)
+    async def maintenance() -> dict[str, object]:
+        result: dict[str, object] = dict(await run_maintenance(settings))
+        if lifecycle is not None:
+            try:
+                result["storage"] = await lifecycle.run()
+            except Exception:  # storage unreachable: the next run retries
+                logger.exception("storage cleanup failed")
+        return result
 
     scheduler.add_interval_job(
-        MAINTENANCE_JOB_ID, maintenance, minutes=24 * 60, name="Prune caches and old run logs"
+        MAINTENANCE_JOB_ID,
+        maintenance,
+        minutes=24 * 60,
+        name="Prune caches, old run logs, old packages and orphaned files",
     )

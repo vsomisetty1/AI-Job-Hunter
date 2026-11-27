@@ -1,7 +1,7 @@
 """File storage backends."""
 
 from app.core.config import Settings
-from app.storage.base import StorageBackend, StorageError, StorageNotFoundError
+from app.storage.base import StorageBackend, StorageError, StorageNotFoundError, StoredFile
 from app.storage.local_storage import LocalStorage
 
 
@@ -24,5 +24,6 @@ __all__ = [
     "StorageBackend",
     "StorageError",
     "StorageNotFoundError",
+    "StoredFile",
     "build_storage",
 ]

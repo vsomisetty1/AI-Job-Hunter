@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.exception("could not recover interrupted work at startup")
     app.state.task_manager = BackgroundTaskManager()
     app.state.scheduler = SchedulerService(enabled=settings.scheduler_enabled)
-    register_jobs(app.state.scheduler, settings, app.state.pipeline)
+    register_jobs(app.state.scheduler, settings, app.state.pipeline, app.state.lifecycle)
     app.state.scheduler.start()
     logger.info(
         "%s %s started (env=%s, auth=%s)",

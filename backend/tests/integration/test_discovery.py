@@ -167,6 +167,18 @@ async def test_incomplete_response_never_expires(app, client):
 
 
 @respx.mock
+async def test_an_empty_board_is_flagged(app, client):
+    """A board that answers with no jobs (the company moved to another board)
+    is crawled successfully but carries a note, so the user can spot it."""
+    mock_greenhouse(jobs={"jobs": [], "meta": {"total": 0}})
+    await add(client, "greenhouse", "acme")
+    result = await run(app)
+    detail = result["details"][0]
+    assert detail["status"] == "ok" and detail["found"] == 0
+    assert any("no open jobs" in n for n in detail["notes"])
+
+
+@respx.mock
 async def test_cross_board_and_url_duplicates_are_skipped(app, client):
     mock_greenhouse()
     await add(client, "greenhouse", "acme")

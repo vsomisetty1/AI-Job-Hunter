@@ -11,7 +11,13 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Response, status
 
-from app.dependencies import DbSession, PackageGeneratorDep, PackageWorkflowDep, TaskManagerDep
+from app.dependencies import (
+    DbSession,
+    LifecycleDep,
+    PackageGeneratorDep,
+    PackageWorkflowDep,
+    TaskManagerDep,
+)
 from app.models.application_package import ApplicationPackage
 from app.scheduler.background import BackgroundTaskManager
 from app.schemas.common import ERROR_RESPONSES, ErrorResponse, Page
@@ -181,6 +187,19 @@ async def update_answer(
     package_id: uuid.UUID, answer_id: uuid.UUID, body: AnswerUpdate, workflow: PackageWorkflowDep
 ) -> AnswerRead:
     return await workflow.update_answer(package_id, answer_id, body.answer)
+
+
+@router.delete(
+    "/{package_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a package (not approved or submitted) and the files only it used",
+    responses=NOT_FOUND,
+)
+async def delete_package(package_id: uuid.UUID, lifecycle: LifecycleDep, db: DbSession) -> Response:
+    files = await lifecycle.delete_package(db, package_id)
+    await db.commit()  # files go only after no row points to them
+    await lifecycle.delete_files(files)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

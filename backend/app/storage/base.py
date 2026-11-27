@@ -6,6 +6,8 @@ could escape their root.
 """
 
 import re
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from fastapi import status
@@ -31,6 +33,13 @@ def check_path(path: str) -> str:
     return path
 
 
+@dataclass(frozen=True)
+class StoredFile:
+    path: str
+    size: int
+    modified: datetime | None  # None when the backend does not say
+
+
 class StorageBackend(Protocol):
     name: str
 
@@ -40,4 +49,8 @@ class StorageBackend(Protocol):
 
     async def delete(self, path: str) -> None:
         """Delete; a missing object is not an error."""
+        ...
+
+    async def list_files(self, prefix: str) -> list[StoredFile]:
+        """Every file under `prefix` (a top-level folder such as "generated")."""
         ...

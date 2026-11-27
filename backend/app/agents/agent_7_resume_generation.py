@@ -13,6 +13,7 @@ Rendering is CPU work; `render_*_files` run it in a worker thread.
 
 import asyncio
 import io
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from xml.sax.saxutils import escape
@@ -48,14 +49,16 @@ _STYLES = {
                            alignment=TA_CENTER, textColor=HexColor(ACCENT)),
     "contact": ParagraphStyle("contact", fontName=FONT, fontSize=9.5, leading=12,
                               alignment=TA_CENTER, textColor=HexColor("#374151")),
-    "section": ParagraphStyle("section", fontName=FONT_BOLD, fontSize=11, leading=14,
-                              spaceBefore=9, spaceAfter=1, textColor=HexColor(ACCENT)),
-    "role": ParagraphStyle("role", fontName=FONT_BOLD, fontSize=10.5, leading=13, spaceBefore=4),
-    "meta": ParagraphStyle("meta", fontName=FONT, fontSize=9.5, leading=12,
+    # Sizes chosen so a 5-10 year resume fits about two pages (recruiters skim),
+    # without going below 9.5 pt body text.
+    "section": ParagraphStyle("section", fontName=FONT_BOLD, fontSize=10.5, leading=13,
+                              spaceBefore=7, spaceAfter=1, textColor=HexColor(ACCENT)),
+    "role": ParagraphStyle("role", fontName=FONT_BOLD, fontSize=10, leading=12.5, spaceBefore=3),
+    "meta": ParagraphStyle("meta", fontName=FONT, fontSize=9, leading=11,
                            textColor=HexColor("#4b5563")),
-    "body": ParagraphStyle("body", fontName=FONT, fontSize=10, leading=13),
-    "bullet": ParagraphStyle("bullet", fontName=FONT, fontSize=10, leading=13, leftIndent=12,
-                             bulletIndent=2, spaceBefore=1),
+    "body": ParagraphStyle("body", fontName=FONT, fontSize=9.5, leading=12),
+    "bullet": ParagraphStyle("bullet", fontName=FONT, fontSize=9.5, leading=11.8, leftIndent=11,
+                             bulletIndent=2, spaceBefore=0.5),
     "letter": ParagraphStyle("letter", fontName=FONT, fontSize=11, leading=15, spaceAfter=9),
 }  # fmt: skip
 
@@ -76,9 +79,15 @@ def date_range(start: str | None, end: str | None, current: bool) -> str:
     return f"{s} – {e}" if s and e else s or e
 
 
+def display_url(url: str) -> str:
+    """'https://www.linkedin.com/in/x/' -> 'linkedin.com/in/x' (what people type)."""
+    return re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+
+
 def contact_line(resume: ParsedResume) -> str:
     c = resume.contact
-    parts = [c.email, c.phone, c.location, c.linkedin, c.github, c.portfolio, *c.other_links]
+    links = [display_url(u) for u in (c.linkedin, c.github, c.portfolio, *c.other_links) if u]
+    parts = [c.email, c.phone, c.location, *links]
     return "  |  ".join(p for p in parts if p)
 
 
@@ -187,8 +196,8 @@ class LetterDoc:
 def _pdf(story: list[Flowable], title: str, author: str) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf, pagesize=LETTER, leftMargin=0.7 * inch, rightMargin=0.7 * inch,
-        topMargin=0.6 * inch, bottomMargin=0.6 * inch, title=title, author=author,
+        buf, pagesize=LETTER, leftMargin=0.6 * inch, rightMargin=0.6 * inch,
+        topMargin=0.5 * inch, bottomMargin=0.5 * inch, title=title, author=author,
         invariant=1,
     )  # fmt: skip
     doc.build(story)

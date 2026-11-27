@@ -146,6 +146,18 @@ AI cost.**
 6. **Fully automatic AI is opt-in.** Scheduled AI scoring or autonomous applying runs only
    if the owner adds an API key, ideally with a Console spend cap.
 
+**Truthfulness rules learned in MVP validation** (apply to any new generator, rule-based or
+Claude):
+- Claim a skill as *used* only where a resume line describes using it: a mention after
+  "future", "planned", "exposure to", "familiar with" or before "-ready"/"concepts" is intent,
+  not use (`relevance.strong_mentions`).
+- When a sentence promises evidence for a skill, the next quoted line must show it.
+- Use job titles as held, without arrangement qualifiers like "(Contract)" in prose
+  (`role_name`), and never invent a composite title.
+- Evidence is picked per posting (`relevance.JobTerms`), so two letters for two jobs differ.
+- Personal data from a real resume never goes into the repository: validation output lives
+  in the git-ignored `validation-output/`.
+
 Models are configurable (`CLAUDE_MODEL_SCORING`, `CLAUDE_MODEL_WRITING`,
 `CLAUDE_MODEL_ANALYSIS`). The defaults are the current small, mid and large models.
 
@@ -194,6 +206,7 @@ Revisit after Phase 7, starting with discovery only (see ADR-008).
 |---|---|
 | 6 | Done: Agent 4 rule filtering; Agent 5 scoring (deterministic baseline, optional Claude for a shortlist); scores in the Jobs UI; Settings page (Claude Code command path still to do) |
 | 7 | Done: application packages (Agents 6–9: tailored resume versions with change log, PDF/DOCX, cover letters, answers) with an approval workflow. Next: Agent 10 Playwright automation for Greenhouse/Lever/Ashby from approved packages, approval mode then autonomous mode with threshold and daily cap |
+| MVP validation | Done: validated on a real resume and 5.4k real postings before automation (see `docs/MVP_VALIDATION.md`): parsing, relevance-ranked tailoring, specific and honest letters and answers, data lifecycle (ADR-013), faster scoring, expired jobs cannot be approved |
 | 8 | Dashboard, applications, activity pages; learning insights (`learning/`) |
 | 9 | Docker images, full compose, deployment and Supabase docs (personal deployment; real auth before anything public) |
 | 10 | End-to-end tests (Playwright) in CI |

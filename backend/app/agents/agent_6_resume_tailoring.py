@@ -37,6 +37,7 @@ from app.agents.agent_5_job_scoring import (
     title_similarity,
 )
 from app.agents.base import Agent
+from app.agents.relevance import JobTerms
 from app.agents.truthfulness import (
     Facts,
     check_tailored,
@@ -53,7 +54,7 @@ from app.schemas.parsed_resume import ParsedResume
 
 logger = logging.getLogger(__name__)
 
-TAILORING_VERSION = "tailor-1"
+TAILORING_VERSION = "tailor-2"
 MAX_HEADLINE_SKILLS = 4
 LEVEL_WORDS = {
     "junior": "Junior",
@@ -159,10 +160,6 @@ def job_skills(
     return matched, missing
 
 
-def _relevance(text: str, wanted: set[str], facts: Facts) -> int:
-    return len(skills_in(text, facts) & wanted)
-
-
 def _rank(items: list[str], key: Any) -> list[str]:
     """Stable sort, most relevant first."""
     return [x for _, x in sorted(enumerate(items), key=lambda p: (-key(p[1]), p[0]))]
@@ -182,6 +179,7 @@ def tailor(
     matched, missing = job_skills(job, candidate, resume)
     wanted = {s.casefold() for s in matched}
     order = {s.casefold(): i for i, s in enumerate(matched)}
+    terms = JobTerms.from_job(job.title, job.requirements, job.description, matched)
     changes: list[dict[str, Any]] = []
     notes: list[str] = []
 
@@ -266,19 +264,24 @@ def tailor(
 
     # 2. Bullets within each role.
     for role in out.experience:
-        ranked = _rank(role.bullets, lambda b: _relevance(b, wanted, facts))
+        ranked = _rank(role.bullets, lambda b: terms.score(b, facts))
         if ranked != role.bullets:
             top = sorted(skills_in(ranked[0], facts) & wanted)
             names = [m for m in matched if m.casefold() in top] or top
+            shared = terms.shared_terms(ranked[0])[:3]
+            if names:
+                why = f"Leads with the work that uses {_join(names)}"
+            elif shared:
+                why = f"Leads with the work closest to the posting ({', '.join(shared)})"
+            else:
+                why = "Leads with the most relevant work"
             changes.append(
                 _change(
                     "experience",
                     "bullets",
                     role.bullets,
                     ranked,
-                    f"Leads with the work that uses {_join(names)}"
-                    if names
-                    else "Leads with the most relevant work",
+                    why,
                     now,
                     item=_role_label(role.title, role.company),
                 )
@@ -291,10 +294,8 @@ def tailor(
         out.projects = sorted(
             out.projects,
             key=lambda p: (
-                -_relevance(
-                    " ".join([p.name, p.description or "", *p.technologies, *p.bullets]),
-                    wanted,
-                    facts,
+                -terms.score(
+                    " ".join([p.name, p.description or "", *p.technologies, *p.bullets]), facts
                 ),
                 names_before.index(p.name),
             ),
@@ -312,13 +313,16 @@ def tailor(
                 )
             )
 
-    # 4. Summary headline from profile facts.
-    # If the candidate's own summary already states their years, do not add a
-    # second, possibly different figure computed from role dates.
+    # 4. Summary headline from profile facts, only when the summary does not
+    # already say who the candidate is (a second "Software Engineer with N
+    # years" sentence reads as filler). If the summary states years, the
+    # headline never adds a second, possibly different figure.
     states_years = bool(re.search(r"\b\d+\+?\s*(?:years|yrs)\b", out.summary or "", re.I))
-    headline = headline_for(
-        job, candidate, [m for m in matched if facts.has_skill(m)], with_years=not states_years
-    )
+    headline = None
+    if not summary_names_role(out.summary, candidate):
+        headline = headline_for(
+            job, candidate, [m for m in matched if facts.has_skill(m)], with_years=not states_years
+        )
     if headline and check_text(headline, facts, allow_numbers=_computed_numbers(candidate)):
         headline = None  # e.g. a profile role naming a skill the resume never mentions
     if headline and not (out.summary or "").startswith(headline):
@@ -361,16 +365,27 @@ def _computed_numbers(candidate: CandidateFacts) -> list[str]:
     return [str(y)] if y is not None else []
 
 
+def summary_names_role(summary: str | None, candidate: CandidateFacts) -> bool:
+    """The summary's first sentence already names one of the candidate's role nouns."""
+    if not summary:
+        return False
+    first = re.split(r"(?<=[.!?])\s", summary, maxsplit=1)[0].lower()
+    nouns = {r.split()[-1].lower() for r in candidate.roles if r.split()}
+    nouns |= {"engineer", "developer", "analyst", "scientist", "designer", "manager"}
+    return any(re.search(rf"\b{re.escape(n)}s?\b", first) for n in nouns)
+
+
 def headline_for(
     job: TailoringJob, candidate: CandidateFacts, skills: list[str], *, with_years: bool = True
 ) -> str | None:
-    """'Senior Backend Engineer with 7+ years of experience in Python and AWS.'"""
+    """'Backend Engineer with 7+ years of experience in Python and AWS.'
+
+    The role is one of the candidate's own roles as written (titles they held or
+    their inferred target roles). No level word is added: "Senior" + a role they
+    held without it would be a title they never had."""
     if not candidate.roles:
         return None
     role = max(candidate.roles, key=lambda r: title_similarity(job.title, r))
-    level = LEVEL_WORDS.get(candidate.seniority or "")
-    if level and level.split("-")[0].lower() not in role.lower():
-        role = f"{level} {role}"
     years = _years(candidate) if with_years else None
     text = role
     if years is not None:

@@ -162,6 +162,10 @@ expect 200 GET "/api/v1/packages?status=generated"
 expect 200 POST "/api/v1/packages/$PKG_ID/review"
 expect 200 POST "/api/v1/packages/$PKG_ID/approve" '{"notes": "smoke"}'
 expect 409 POST "/api/v1/packages/$PKG_ID/approve"
+# Data lifecycle (MVP validation): an approved package is kept; storage report and cleanup.
+expect 409 DELETE "/api/v1/packages/$PKG_ID"
+expect 200 GET "/api/v1/system/storage"
+expect 200 POST "/api/v1/system/storage/cleanup"
 
 grep -q "Traceback" "$LOG" && fail "traceback in server log"
 echo "smoke test passed"

@@ -1,12 +1,13 @@
 # Project state
 
-Snapshot of the repository as of **2026-11-27**, at the Phase 7 commit `feat: application package generation`.
+Snapshot of the repository as of **2026-11-27**, at the commit `chore: validate MVP before automation` (after Phase 7).
 It was written from the code, schema, tests and git history, not from memory.
 Update it at the end of every phase.
 
 Companion documents:
 - [AI_CONTEXT.md](AI_CONTEXT.md): objectives, conventions, strategy
-- [docs/architecture/](docs/architecture/): ADRs 001–012
+- [docs/architecture/](docs/architecture/): ADRs 001–013
+- [docs/MVP_VALIDATION.md](docs/MVP_VALIDATION.md): real-resume, real-job validation before automation
 - [docs/TESTING.md](docs/TESTING.md): CI and test layout
 - [docs/VALIDATION.md](docs/VALIDATION.md): the real-world discovery check
 
@@ -21,7 +22,8 @@ Companion documents:
 | Audit | `96f8e92` | Production-readiness fixes: strict mypy, architecture tests, recovery of interrupted work, DB audit |
 | 5. Job discovery | `e505d36` | Greenhouse/Lever/Ashby connectors, normalization, deduplication, persistence, discovery runs and monitoring, scheduler, Jobs and Discovery UI, real-world validation script |
 | 6. Filtering and scoring | `5edc75b` | Migration 0004, cross-board duplicate sweep, Agent 4 rule filter, Agent 5 rule-based scoring, optional Claude scoring (cached, capped, paced), Discovery → Deduplication → Filtering → Scoring pipeline, scoring API, Jobs score column/filters/detail breakdown, Settings page |
-| 7. Application packages | `feat: application package generation` | Migration 0005; Agent 6 tailoring with change log; Agent 7 PDF/DOCX rendering; Agent 8 cover letters; Agent 9 answers; truthfulness guard; package generation (background) and approval workflow (review, approve, reject, regenerate, mark submitted); packages API; approval queue, review, tailored resume, diff, cover letter and answers pages |
+| 7. Application packages | `3624669` | Migration 0005; Agent 6 tailoring with change log; Agent 7 PDF/DOCX rendering; Agent 8 cover letters; Agent 9 answers; truthfulness guard; package generation (background) and approval workflow (review, approve, reject, regenerate, mark submitted); packages API; approval queue, review, tailored resume, diff, cover letter and answers pages |
+| MVP validation | `chore: validate MVP before automation` | Real resume + 5.4k real jobs: parsing fixes (DOCX tables, dates, locations, degrees, certifications, arrangement qualifiers, taxonomy), relevance-ranked tailoring/letters/answers (`agents/relevance.py`), honest skill claims, scoring calibration (`rules-3`) and 3× faster scoring, data lifecycle (package delete, retention, orphan sweep, storage report; ADR-013), empty-board note, expired jobs cannot be approved, `scripts/validate_mvp.py` |
 
 **Not started:** browser automation (Agent 10, the second half of the original Phase 7), learning/insights (moved to Phase 8), Phase 8 (remaining frontend), Phase 9 (deployment), Phase 10 (end-to-end testing).
 
@@ -201,14 +203,24 @@ See ADR-011 and the README section. Pipeline: `JobPipeline` (`services/pipeline_
 
 See ADR-012 and the README section. `PackageGenerator.generate` (background task) loads the job, active profile, primary resume's latest parsed version, settings and the job's effective score (computed with Agent 5 if the job was never scored), then runs Agents 6, 8 and 9 with no transaction open, renders files with Agent 7, writes them to storage, and saves the tailored resume version, cover letter, answers and package in one short transaction. `PackageWorkflow` handles the state changes inside the request. `app/agents/truthfulness.py` checks every generated text: no skill or number the resume lacks; tailored resumes keep contact, roles, dates, education and certifications identical.
 
+## 8d. MVP validation summary
+
+See [docs/MVP_VALIDATION.md](docs/MVP_VALIDATION.md) (anonymised; the full report is personal
+and stays in the git-ignored `validation-output/`). Final run on the real resume: parse
+confidence 1.0 with no lost lines; 10 packages for 10 companies with 0 harness issues; cover
+letter 4-gram overlap mean 0.30 (was 0.34, max 0.51 from 0.75); resume renders on 2 pages.
+Lifecycle: `LifecycleService` (`services/lifecycle_service.py`) runs in the daily maintenance
+job; `DELETE /packages/{id}`, `GET /system/storage`, `POST /system/storage/cleanup`;
+settings `PACKAGE_RETENTION_DAYS` (90) and `ORPHAN_GRACE_HOURS` (24).
+
 ## 9. Testing status
 
 - **Backend:**
-  - 451 tests pass (unit, plus integration on real Postgres). The 3 live tests are deselected by default.
+  - 473 tests pass (unit, plus integration on real Postgres). The 3 live tests are deselected by default.
   - CI fails on any skip; warnings are errors.
 - **Frontend:** 57 Vitest tests.
 - **CI** (`.github/workflows/ci.yml`, on every push):
-  - backend: pip check, ruff (incl. security rules), pip-audit, format, mypy strict, pytest on Postgres 19, smoke script against the real server (now including a filtering/scoring run and a package generate/download/review/approve)
+  - backend: pip check, ruff (incl. security rules), pip-audit, format, mypy strict, pytest on Postgres 19, smoke script against the real server (now including a filtering/scoring run, a package generate/download/review/approve, package delete rules and the storage endpoints)
   - frontend: npm audit, typecheck, lint, test, build
 - **Weekly:** `live-connectors.yml`.
 - **No empty test placeholders remain.** The Phase 1 stubs were either implemented (`test_rule_filtering.py`, `test_scoring.py`, `test_api.py`, `test_pipeline.py`) or removed (`test_resume_parser.py`, covered by `test_parsing.py`; `test_form_engine.py`, `tests/e2e/test_apply_flow.py` and `frontend/e2e/dashboard.spec.ts`, which Phases 7 and 10 will create for real). Playwright e2e is not run in CI.
@@ -216,14 +228,15 @@ See ADR-012 and the README section. `PackageGenerator.generate` (background task
 ## 10. Technical debt
 
 - `Settings.app_version` is `0.7.0`; nothing bumps it automatically.
-- Generated PDF/DOCX files are not deleted when their resume or package is deleted (only the uploaded original is); a cleanup job is needed eventually.
+- Reparsing a resume does not rebuild the profile or rescore jobs automatically (each is one action).
+- The orphan sweep lists every stored file and referenced path: fine for a personal store, not for a very large one.
 - Package generation is a background task: like the others it is lost on restart (the package is then marked failed and can be regenerated).
 - `docs/ARCHITECTURE.md`, `docs/SETUP.md` and `docs/SUPABASE_SETUP.md` are still Phase 1 placeholders. ADRs and this file now carry that content; `docs/PHASE_3_PLAN.md` is historical.
 - `backend/Dockerfile` and `frontend/Dockerfile` are placeholders. `docker-compose.yml` runs only the database.
-- Agent 5's skill matching knows the built-in taxonomy plus the candidate's own skills only; synonyms need Claude (or a future Claude Code command).
+- Agent 5's skill matching knows the built-in taxonomy plus the candidate's own skills only; synonyms need Claude (or a future Claude Code command). Skills the taxonomy does not know are scored neutral rather than as misses.
 - The Claude daily cap counts calls recorded by scoring stages in `agent_runs`; a scoring path outside the pipeline would not be counted.
 - Job search uses `ILIKE` per word with no full-text index. That is fine for thousands of rows; add `tsvector`/`pg_trgm` if it grows.
-- The suggested-company directory (`connectors/company_directory.py`) is static, verified on 2026-11-27, and will drift.
+- The suggested-company directory (`connectors/company_directory.py`) is static, verified on 2026-11-27, and will drift (one company had already moved platforms and one board was empty; an empty board now shows a note in the run details).
 - `llm/pricing.py` holds a manual price table.
 - `httpx` is held at 0.28.1 by `supabase`; ESLint 9 and TypeScript 6 are held back by `eslint-config-next`/`typescript-eslint` (see `docs/TESTING.md`).
 - Several placeholder modules for Phases 6–10 exist only as docstrings (listed in §5). Before relying on their names, confirm the design still fits.
@@ -242,7 +255,7 @@ See ADR-012 and the README section. `PackageGenerator.generate` (background task
 - Location matching knows a small alias table and US states only (no country/city database); unknown places match by name.
 - Sponsorship detection is phrase-based; unusual wording can slip through (the job is then kept).
 - Cover letters and the “why this company” answer are templates over facts unless Claude is used; they are flagged for personalisation.
-- Per-skill experience years count whole roles whose text names the skill; a skill used in part of a role is over-counted.
+- Per-skill experience years count whole roles whose text describes using the skill; a skill used in part of a role is over-counted, so such answers say "about" and are flagged when any counted role only names the skill.
 - No dashboard, applications or activity UI yet.
 
 ## 12. Deferred functionality

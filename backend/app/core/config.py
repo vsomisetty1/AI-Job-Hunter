@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     claude_scoring_max_per_day: int = Field(default=100, ge=0, le=5000)
     claude_scoring_per_minute: float = Field(default=10.0, gt=0, le=600)
     llm_cache_ttl_days: int = Field(default=30, ge=0)  # 0 = never expires
+    # Superseded/rejected/failed application packages (and the tailored resume
+    # and cover letter they created) are deleted after this many days.
+    package_retention_days: int = Field(default=90, ge=1)
+    # Files no row points to are deleted by the daily sweep once this old.
+    orphan_grace_hours: int = Field(default=24, ge=1)
     # agent_runs older than this are deleted by the daily maintenance job.
     agent_run_retention_days: int = Field(default=180, ge=1)
 

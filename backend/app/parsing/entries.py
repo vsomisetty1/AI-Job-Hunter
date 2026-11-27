@@ -5,7 +5,13 @@ from dataclasses import dataclass, field
 
 from app.parsing.contact import LOCATION_RE, REMOTE_RE, URL_RE
 from app.parsing.dates import DateRange, find_date_range, find_year
-from app.parsing.skills import dedupe_skills, find_skills, split_skill_list
+from app.parsing.skills import (
+    clean_skill,
+    dedupe_skills,
+    find_skills,
+    normalize_skill,
+    split_skill_list,
+)
 from app.schemas.parsed_resume import (
     AwardEntry,
     CertificationEntry,
@@ -52,7 +58,7 @@ DEGREE_RE = re.compile(
     r"High School Diploma|GED|Diploma|Certificate)"
     r"(?=[\s,.(]|$)"
     r"(?:\s*(?:in|of|,|-|–)?\s*(?P<field>[A-Z][A-Za-z&/ ]{2,60}?))?"
-    r"(?=\s*(?:[,|(–-]|\d|$))"
+    r"(?=\s*(?:[,|(–\u2014\u2022\u00b7-]|\d|$))"
 )
 GPA_RE = re.compile(r"\bGPA[:\s]*([0-4]\.\d{1,2})(?:\s*/\s*4(?:\.0+)?)?", re.IGNORECASE)
 
@@ -137,6 +143,11 @@ def group_blocks(lines: list[str]) -> list[_Block]:
             continue
         has_date = find_date_range(text) is not None
         cur_has_date = any(find_date_range(h) for h in cur.header)
+        # A dates-only line after a role's bullets ("April 2026 - Present" from a
+        # second column) belongs to that role if it has no dates yet.
+        if cur.body and has_date and not cur_has_date and not _without_dates(text):
+            cur.header.append(text)
+            continue
         if cur.body or (has_date and cur_has_date) or len(cur.header) >= 4:
             blocks.append(_Block(header=[text]))
         else:
@@ -174,6 +185,12 @@ def parse_experience(lines: list[str]) -> list[ExperienceEntry]:
                 if _is_location(m.group(1)):
                     location = location or m.group(1).strip()
                     header[i] = line.replace(m.group(0), " ").strip()
+        # "Acme Corp — Austin, TX": a location after a strong separator.
+        for i, line in enumerate(header):
+            pieces = re.split(r"\s+[|\u2014\u2013]\s+|\s+-\s+|\t+", line)
+            if len(pieces) > 1 and _is_location(pieces[-1]):
+                location = location or pieces[-1].strip()
+                header[i] = " \u2014 ".join(pieces[:-1]).strip()
         parts: list[str] = []
         for line in header:
             if " at " in line and _title_score(line.split(" at ")[0]):
@@ -260,8 +277,13 @@ def parse_education(lines: list[str]) -> list[EducationEntry]:
             if fld and not INSTITUTION_RE.search(fld) and fld.lower() not in {"gpa"}:
                 cur.field_of_study = fld
         if not inst and not deg and not dr and not GPA_RE.search(text):
+            # Honors and coursework lines are kept as detail lines of the degree.
             if re.match(r"(?i)(honou?rs|cum laude|dean'?s list|magna|summa|award)", text) or (
                 "honor" in text.lower()
+            ):
+                cur.honors.append(text)
+            elif re.match(
+                r"(?i)((relevant|notable|selected|key)\s+)?(course ?work|courses)\b", text
             ):
                 cur.honors.append(text)
     return [e for e in entries if e.institution or e.degree]
@@ -290,7 +312,14 @@ def parse_skills(lines: list[str]) -> tuple[list[str], list[SkillGroup]]:
         items: list[str] = []
         for item in raw_items:
             # Long fragments are prose ("Experienced with Kubernetes"): mine them.
-            items += find_skills(item) if _is_prose(item) else [item]
+            if _is_prose(item):
+                items += find_skills(item)
+                continue
+            items.append(item)
+            # "Cloud data engineering", "Linux/Unix": keep the item as written and
+            # also the standard names it contains, which is what postings ask for.
+            if normalize_skill(item) == clean_skill(item):
+                items += find_skills(item, include_ambiguous=True)
         items = dedupe_skills(items)
         skills += items
         if category and items:
@@ -300,21 +329,30 @@ def parse_skills(lines: list[str]) -> tuple[list[str], list[SkillGroup]]:
 
 # ------------------------------------------------------- simple list items
 def _items(lines: list[str]) -> list[tuple[str, list[str]]]:
-    """(item line, detail bullets) pairs for list-like sections."""
+    """(item line, detail bullets) pairs for list-like sections.
+
+    A long bullet is a detail of the item above only when that item was a plain
+    (non-bullet) line: in a bulleted list every bullet is its own item."""
     out: list[tuple[str, list[str]]] = []
+    bulleted: list[bool] = []
     for raw in lines:
         text = raw.strip()
         if not text:
             continue
-        if is_bullet(text) and out and not out[-1][1] and len(lines) > 1 and _looks_detail(text):
-            out[-1][1].append(strip_bullet(text))
-        elif is_bullet(text):
-            out.append((strip_bullet(text), []))
-        elif out and text[:1].islower():
+        if is_bullet(text):
+            item = strip_bullet(text)
+            parent_is_plain = bool(out) and not bulleted[-1] and not out[-1][1]
+            if parent_is_plain and len(lines) > 1 and _looks_detail(text):
+                out[-1][1].append(item)
+            else:
+                out.append((item, []))
+                bulleted.append(True)
+        elif out and text[:1].islower():  # wrapped line
             prev, details = out[-1]
             out[-1] = (f"{prev} {text}", details)
         else:
             out.append((text, []))
+            bulleted.append(False)
     return out
 
 
@@ -336,7 +374,14 @@ def parse_certifications(lines: list[str]) -> list[CertificationEntry]:
     out = []
     for text, _ in _items(lines):
         year = find_year(text)
-        cleaned = _without_dates(text)
+        # "(Issued Apr 2026)", "Issued: 2025", "Earned 2024": date wording goes with the date.
+        cleaned = re.sub(
+            r"\(\s*(?:issued|earned|completed|awarded|obtained)?\s*:?\s*[^()]*\d{4}[^()]*\)",
+            " ", text, flags=re.IGNORECASE,
+        )  # fmt: skip
+        cleaned = _without_dates(cleaned)
+        cleaned = re.sub(r"(?i)\b(?:issued|earned|completed|awarded|obtained)\s*:?\s*$", "",
+                         cleaned).strip(" ,;-\u2013\u2014")  # fmt: skip
         name, rest = _split_name_rest(cleaned)
         cred = next((r for r in rest if re.search(r"(?i)(credential|id)[:#]?\s*\w", r)), None)
         issuer = next((r for r in rest if r != cred), None)

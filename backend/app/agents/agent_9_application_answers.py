@@ -22,20 +22,21 @@ kept only if it adds no skill or number (`app.agents.truthfulness`).
 """
 
 import json
-import re
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from app.agents.agent_1_profile_inference import role_name
 from app.agents.agent_4_rule_filtering import matches_location
-from app.agents.agent_6_resume_tailoring import LEVEL_WORDS, CandidateFacts, TailoringJob, _join
+from app.agents.agent_6_resume_tailoring import CandidateFacts, TailoringJob, _join
+from app.agents.agent_8_cover_letters import split_title
 from app.agents.base import Agent
+from app.agents.relevance import JobTerms, mentions, strong_mentions
 from app.agents.truthfulness import check_text, facts_from
 from app.llm.client import LLMError
 from app.llm.prompts.application_answers import APPLICATION_ANSWERS
 from app.parsing.dates import total_months
-from app.parsing.skills import AMBIGUOUS
 from app.schemas.parsed_resume import ExperienceEntry, ParsedResume
 
 MAX_SKILL_QUESTIONS = 5
@@ -89,33 +90,40 @@ def _money(value: int, currency: str) -> str:
     return f"{currency} {value:,}"
 
 
-def _mentions(text: str, skill: str) -> bool:
-    flags = 0 if (skill.lower() in AMBIGUOUS or len(skill) <= 2) else re.IGNORECASE
-    return re.search(rf"(?<![\w+#.]){re.escape(skill)}(?![\w+#]|\.\w)", text, flags) is not None
+def mention_count(role: ExperienceEntry, skill: str) -> int:
+    return sum(strong_mentions(line, skill) for line in [role.title or "", *role.bullets])
 
 
 def roles_using(resume: ParsedResume, skill: str) -> list[ExperienceEntry]:
     return [
         e
         for e in resume.experience
-        if _mentions("\n".join([e.title or "", *e.bullets, *e.skills]), skill)
+        if mentions("\n".join([e.title or "", *e.bullets, *e.skills]), skill)
     ]
 
 
 # ------------------------------------------------------------------ answers
 def why_company(job: AnswerJob, skills: list[str]) -> GeneratedAnswer:
+    """A factual draft; motivation is personal, so it is always flagged."""
     j = job.job
-    focus = f", especially the focus on {_join(skills[:3])}" if skills else ""
-    text = (
-        f"The {j.title} role at {j.company_name} lines up with the work I do best{focus}. "
-        f"I want to bring that experience to {j.company_name}'s team and keep building on it."
+    role, team = split_title(j.title)
+    on_team = (
+        f" on the {team} team"
+        if team and not team.lower().endswith("team")
+        else (f" on the {team}" if team else "")
     )
+    focus = (
+        f" It centres on {_join(skills[:3])}, which is the work my experience is built on."
+        if skills
+        else ""
+    )
+    text = f"I am interested in the {role} role{on_team} at {j.company_name}.{focus}"
     return GeneratedAnswer(
         "why_company",
         f"Why do you want to work at {j.company_name}?",
         text,
         "rules",
-        0.5,
+        0.4,
         needs_review=True,
         evidence=[
             _ev("job", f"{j.title} at {j.company_name}"),
@@ -126,33 +134,45 @@ def why_company(job: AnswerJob, skills: list[str]) -> GeneratedAnswer:
 
 
 def why_qualified(
-    job: AnswerJob, cand: CandidateFacts, resume: ParsedResume, skills: list[str]
+    job: AnswerJob,
+    cand: CandidateFacts,
+    resume: ParsedResume,
+    skills: list[str],
+    terms: JobTerms,
 ) -> GeneratedAnswer:
+    """Years, latest actual role, the job's skills the resume shows, and the two
+    resume bullets most relevant to this posting."""
     parts: list[str] = []
     evidence: list[dict[str, str]] = []
-    level = LEVEL_WORDS.get(cand.seniority or "")
+    facts = facts_from(resume, extra_skills=cand.skills)
     years = (
         int(cand.years_experience) if cand.years_experience and cand.years_experience >= 1 else None
     )
-    if cand.roles:
-        who = cand.roles[0]
-        if level and level.lower() not in who.lower():
-            who = f"{level} {who}"
-        parts.append(f"I am a {who}" + (f" with {years}+ years of experience." if years else "."))
-        evidence.append(
-            _ev(
-                "profile",
-                f"role {cand.roles[0]}, level {cand.seniority}, years {cand.years_experience}",
+    latest = resume.experience[0] if resume.experience else None
+    if years or (latest and latest.title):
+        line = f"I have {years}+ years of professional experience" if years else "I am"
+        if latest and latest.title and latest.company:
+            when = "currently" if latest.is_current else "most recently"
+            line += (
+                f"{',' if years else ''} {when} as {role_name(latest.title)} at {latest.company}"
             )
-        )
+        parts.append(line.rstrip() + ".")
+        evidence.append(_ev("profile", f"years_experience {cand.years_experience}"))
     if skills:
         parts.append(f"I have worked with {_join(skills[:5])}, which this role asks for.")
         evidence += [_ev("resume", f"lists {s}") for s in skills[:5]]
-    for role in resume.experience[:2]:
-        if role.bullets:
-            label = " at ".join(x for x in (role.title, role.company) if x)
-            parts.append(f"As {label}: {role.bullets[0].rstrip('.')}.")
-            evidence.append(_ev("resume", f"{label}: {role.bullets[0]}"))
+    ranked = sorted(
+        (
+            (terms.score(b, facts), i, r, b)
+            for r in resume.experience
+            for i, b in enumerate(r.bullets)
+        ),
+        key=lambda t: (-t[0], t[1]),
+    )
+    for _, _, role, bullet in ranked[:2]:
+        label = " at ".join(x for x in (role_name(role.title or ""), role.company) if x)
+        parts.append(f"As {label}: {bullet.rstrip('.')}.")
+        evidence.append(_ev("resume", f"{label}: {bullet}"))
     if not parts:
         return GeneratedAnswer(
             "why_qualified",
@@ -335,31 +355,51 @@ def years_experience(cand: CandidateFacts) -> GeneratedAnswer:
 def skill_experience(
     skill: str, resume: ParsedResume, listed: bool, today: date | None
 ) -> GeneratedAnswer:
+    """Years from the dates of the roles whose text names the skill.
+
+    Every role must describe using the skill. A role that names it only as an
+    intention or exposure ("for future GenAI integration", "AI-ready") is not
+    use, so the answer then says "mentions" and asks you to confirm."""
     q = f"How many years of experience do you have with {skill}?"
     roles = roles_using(resume, skill)
     if roles:
         months = total_months([(r.start_date, r.end_date, r.is_current) for r in roles], today)
-        labels = [" at ".join(x for x in (r.title, r.company) if x) for r in roles]
-        evidence = [_ev("resume", f"{label} mentions {skill}") for label in labels]
-        if months:
-            years = round(months / 12, 1)
-            shown = f"{years:g}"
+        labels = [" at ".join(x for x in (role_name(r.title or ""), r.company) if x) for r in roles]
+        mentions = [mention_count(r, skill) for r in roles]
+        solid = all(m >= 1 for m in mentions)
+        evidence = [
+            _ev(
+                "resume",
+                f"{label}: {m} line{' describes' if m == 1 else 's describe'} using {skill}",
+            )
+            if m
+            else _ev("resume", f"{label}: names {skill} only as a plan or exposure")
+            for label, m in zip(labels, mentions, strict=True)
+        ]
+        years = round(months / 12, 1) if months else None
+        n = f"{len(roles)} role{'s' if len(roles) != 1 else ''}"
+        if years and solid:
             text = (
-                f"About {shown} year{'s' if years != 1 else ''}: I have used {skill} "
-                f"in {len(roles)} role{'s' if len(roles) != 1 else ''} ({'; '.join(labels)})."
+                f"About {years:g} year{'s' if years != 1 else ''}: I have used {skill} "
+                f"in {n} ({'; '.join(labels)})."
             )
             return GeneratedAnswer(
                 f"experience:{skill}", q, text, "profile", 0.75, evidence=evidence
             )
-        text = f"I have used {skill} in {'; '.join(labels)}."
+        those = "those roles" if len(roles) != 1 else "that role"
+        span = f" (about {years:g} years in {those})" if years else ""
+        text = (
+            f"My resume mentions {skill} in {n}: {'; '.join(labels)}{span}. "
+            "Please confirm how long you actually used it."
+        )
         return GeneratedAnswer(
             f"experience:{skill}",
             q,
             text,
             "profile",
-            0.5,
+            0.4,
             needs_review=True,
-            evidence=[*evidence, _ev("note", "role dates missing")],
+            evidence=[*evidence, _ev("note", "a mention of intent or exposure is not use")],
         )
     if listed:
         return GeneratedAnswer(
@@ -400,10 +440,12 @@ def generate_answers(
 ) -> list[GeneratedAnswer]:
     facts = facts_from(resume, extra_skills=cand.skills)
     skills = [s for s in matched if facts.has_skill(s)]
+    j = job.job
+    terms = JobTerms.from_job(j.title, j.requirements, j.description, skills)
     req = {s.casefold() for s in (required if required is not None else matched + missing)}
     answers = [
         why_company(job, skills),
-        why_qualified(job, cand, resume, skills),
+        why_qualified(job, cand, resume, skills, terms),
         salary_expectations(job, settings),
         relocation(job, settings, profile_location),
         sponsorship(settings),

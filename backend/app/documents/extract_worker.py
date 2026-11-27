@@ -178,6 +178,37 @@ def _docx_paragraph(p: Any) -> dict[str, Any] | None:
     }
 
 
+def _docx_table_lines(table: Any) -> list[dict[str, Any]]:
+    """Lines of a body table, row by row.
+
+    Resumes often lay out a role as one row: [company / title / bullets | dates].
+    Within a row, the header lines of every cell come first and the bullets
+    after, so the dates cell stays with the company and title instead of
+    landing after the bullets. Cell paragraphs keep their list (bullet) style.
+    """
+    out: list[dict[str, Any]] = []
+    for row in table.rows:
+        seen: set[int] = set()
+        heads: list[dict[str, Any]] = []
+        bullets: list[dict[str, Any]] = []
+        for cell in row.cells:
+            if id(cell._tc) in seen:  # merged cells repeat the same cell
+                continue
+            seen.add(id(cell._tc))
+            for p in cell.paragraphs:
+                item = _docx_paragraph(p)
+                if item is None:
+                    continue
+                for sub in item["text"].splitlines():  # soft line breaks
+                    if sub.strip():
+                        target = bullets if item["text"].startswith("\u2022 ") else heads
+                        target.append(item | {"text": sub.strip()})
+            for nested in cell.tables:
+                bullets += _docx_table_lines(nested)
+        out += heads + bullets
+    return out
+
+
 def _extract_docx(data: bytes) -> dict[str, Any]:
     import docx
     from docx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -209,14 +240,7 @@ def _extract_docx(data: bytes) -> dict[str, Any]:
             if (item := _docx_paragraph(block)) is not None:
                 lines.append(item)
         elif isinstance(block, Table):
-            for row in block.rows:
-                # Merged cells repeat; dict.fromkeys keeps order and drops repeats.
-                cells = [c.text.strip() for c in row.cells if c.text.strip()]
-                for cell_text in dict.fromkeys(cells):
-                    for sub in cell_text.splitlines():
-                        if sub.strip():
-                            lines.append({"text": sub.strip(), "bold": False, "size": 0.0,
-                                          "heading_style": False})  # fmt: skip
+            lines += _docx_table_lines(block)
         if len(lines) >= _MAX_LINES:
             break
 

@@ -139,3 +139,8 @@ class ApplicationPackage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             )
         ),  # fmt: skip
     )
+
+
+def a_status(status: str) -> str:
+    """'An approved', 'A generated': the status with its article, for messages."""
+    return ("An " if status[:1] in "aeiou" else "A ") + status

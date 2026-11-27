@@ -69,6 +69,16 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   reject/regenerate/supersede, interrupted generation, Claude path with rejected inventions,
   no-key fallback). Migration 0005 is covered both ways; the smoke script generates, downloads,
   reviews and approves a package on the real server. Frontend: `Packages.test.tsx`.
+- MVP validation: `tests/integration/test_lifecycle.py` (package delete rules, artifacts an
+  application uses are kept, retention pruning, resume file cleanup, orphan sweep with grace
+  period, storage report/cleanup endpoints); `test_storage.py` (`list_files`);
+  `test_scoring.py` (shrinkage, neutral unknown skills, function mismatch);
+  `test_cover_letters.py` / `test_application_answers.py` (relevance-ranked evidence, skill
+  lead backed by the next line, plan/exposure mentions not claimed, arrangement qualifiers
+  dropped); `test_packages.py` (expired job cannot be approved); `test_discovery.py` (empty
+  board note). The smoke script also checks package delete (409 when approved) and the
+  storage endpoints. Real-data checks are manual: `scripts/validate_mvp.py` (see
+  [MVP_VALIDATION.md](MVP_VALIDATION.md)); its output is personal and git-ignored.
 - Background re-scoring on settings/profile changes is off in the default test app
   (`rescore_on_change=False`, like the scheduler), because the rolled-back `db_app`
   shares one connection; the tests that cover it use the live-pool app.

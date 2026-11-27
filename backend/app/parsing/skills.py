@@ -32,8 +32,8 @@ TAXONOMY: dict[str, list[str]] = {
     "Django": ["django"], "Flask": ["flask"], "FastAPI": ["fastapi"], "Spring": ["spring"],
     "Spring Boot": ["spring boot"], "Ruby on Rails": ["rails", "ruby on rails"],
     ".NET": [".net", "dotnet", ".net core", "asp.net"], "Laravel": ["laravel"],
-    "GraphQL": ["graphql"], "REST APIs": ["rest", "restful", "rest api", "rest apis"],
-    "gRPC": ["grpc"], "Tailwind CSS": ["tailwind", "tailwindcss", "tailwind css"],
+    "GraphQL": ["graphql"], "REST APIs": ["rest", "restful", "rest api", "rest apis", "restful api", "restful apis", "restful services"],
+    "gRPC": ["grpc"], "OpenAPI": ["openapi", "swagger", "openapi/swagger"], "Tailwind CSS": ["tailwind", "tailwindcss", "tailwind css"],
     "Redux": ["redux"], "jQuery": ["jquery"], "React Native": ["react native"],
     "Flutter": ["flutter"],
     # data / ml
@@ -46,7 +46,11 @@ TAXONOMY: dict[str, list[str]] = {
     "Power BI": ["power bi", "powerbi"], "Looker": ["looker"], "Excel": ["excel", "ms excel"],
     "Machine Learning": ["machine learning", "ml"], "Deep Learning": ["deep learning"],
     "NLP": ["nlp", "natural language processing"], "Computer Vision": ["computer vision"],
-    "LLMs": ["llm", "llms", "large language models"], "Statistics": ["statistics"],
+    "LLMs": ["llm", "llms", "large language models"],
+    "Generative AI": ["generative ai", "genai", "gen ai"], "Prompt Engineering": ["prompt engineering"],
+    "RAG": ["rag", "retrieval-augmented generation", "retrieval augmented generation"],
+    "Embeddings": ["embeddings", "vector embeddings"], "Vector Databases": ["vector database", "vector databases", "vector db"],
+    "Data Pipelines": ["data pipeline", "data pipelines"], "Data Engineering": ["data engineering"], "Statistics": ["statistics"],
     "Data Analysis": ["data analysis"], "ETL": ["etl", "elt"], "A/B Testing": ["a/b testing", "ab testing"],
     # databases
     "PostgreSQL": ["postgresql", "postgres", "psql"], "MySQL": ["mysql"], "SQLite": ["sqlite"],
@@ -62,11 +66,14 @@ TAXONOMY: dict[str, list[str]] = {
     "Linux": ["linux", "unix"], "Nginx": ["nginx"], "Prometheus": ["prometheus"],
     "Grafana": ["grafana"], "Datadog": ["datadog"], "Serverless": ["serverless"],
     "AWS Lambda": ["lambda", "aws lambda"], "Microservices": ["microservices", "microservice"],
-    "RabbitMQ": ["rabbitmq"], "OpenTelemetry": ["opentelemetry"],
+    "RabbitMQ": ["rabbitmq"], "OpenTelemetry": ["opentelemetry"], "Splunk": ["splunk"],
+    "SonarQube": ["sonarqube"], "Apigee": ["apigee"], "Harness": ["harness"], "Observability": ["observability"],
+    "DevSecOps": ["devsecops"], "Maven": ["maven"], "Gradle": ["gradle"], "Postman": ["postman"],
     # testing / practices
     "Agile": ["agile"], "Scrum": ["scrum"], "TDD": ["tdd", "test-driven development"],
     "Jest": ["jest"], "Cypress": ["cypress"], "Playwright": ["playwright"],
-    "Selenium": ["selenium"], "pytest": ["pytest"], "JUnit": ["junit"],
+    "Selenium": ["selenium"], "pytest": ["pytest"], "JUnit": ["junit"], "Mockito": ["mockito"],
+    "Karate": ["karate"], "JPA": ["jpa"], "Hibernate": ["hibernate"],
     # design / product / business
     "Figma": ["figma"], "Sketch": ["sketch"], "Adobe Photoshop": ["photoshop", "adobe photoshop"],
     "UX Research": ["ux research", "user research"], "Product Management": ["product management"],
@@ -83,7 +90,7 @@ TAXONOMY: dict[str, list[str]] = {
 AMBIGUOUS = {
     "go", "r", "c", "swift", "spring", "rust", "dart", "lua", "express", "react", "node",
     "rest", "shell", "ml", "ts", "js", "oracle", "lambda", "torch", "spark", "agile",
-    "excel", "sketch", "flask", "helm", "statistics", "unix", "git",
+    "excel", "sketch", "flask", "helm", "statistics", "unix", "git", "harness", "rag", "karate",
 }  # fmt: skip
 
 _SPLIT = re.compile(r"\s*(?:[,;|•·●▪]|\s/\s|\s-\s|\band\b(?=\s+[A-Z]))\s*")
@@ -100,9 +107,9 @@ def _alias_index() -> dict[str, str]:
     return index
 
 
-@lru_cache(maxsize=1)
-def _mining_pattern() -> re.Pattern[str]:
-    aliases = [a for a in _alias_index() if a not in AMBIGUOUS]
+@lru_cache(maxsize=2)
+def _mining_pattern(include_ambiguous: bool = False) -> re.Pattern[str]:
+    aliases = [a for a in _alias_index() if include_ambiguous or a not in AMBIGUOUS]
     aliases.sort(key=len, reverse=True)  # prefer "spring boot" over "spring"
     body = "|".join(re.escape(a) for a in aliases)
     return re.compile(rf"(?<![\w+#.])(?:{body})(?![\w+#]|\.\w)", re.IGNORECASE)
@@ -132,11 +139,21 @@ def split_skill_list(line: str) -> tuple[str | None, list[str]]:
     return category, skills
 
 
-def find_skills(text: str) -> list[str]:
-    """Known, unambiguous skills mentioned in free text, in order of first mention."""
+def skill_aliases(skill: str) -> list[str]:
+    """Every spelling of a skill: its canonical name and known aliases, longest first."""
+    canonical = normalize_skill(skill)
+    names = {skill, canonical} | {a for a, c in _alias_index().items() if c == canonical}
+    return sorted(names, key=len, reverse=True)
+
+
+def find_skills(text: str, *, include_ambiguous: bool = False) -> list[str]:
+    """Known, unambiguous skills mentioned in free text, in order of first mention.
+
+    `include_ambiguous`: also names like "Go" or "RAG", for text that is known to
+    be a list of skills (never prose)."""
     found: dict[str, None] = {}
     index = _alias_index()
-    for m in _mining_pattern().finditer(text):
+    for m in _mining_pattern(include_ambiguous).finditer(text):
         found.setdefault(index[m.group(0).lower()], None)
     return list(found)
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, status
 from pydantic import BaseModel
 
 from app.core.exceptions import NotFoundError
-from app.dependencies import CurrentUser, SchedulerDep, SettingsDep, TaskManagerDep
+from app.dependencies import CurrentUser, LifecycleDep, SchedulerDep, SettingsDep, TaskManagerDep
 from app.scheduler.background import TaskStatus
 from app.schemas.common import ERROR_RESPONSES, ErrorResponse
 
@@ -85,3 +85,13 @@ async def get_task(task_id: str, tasks: TaskManagerDep) -> BackgroundTask:
     if info is None:
         raise NotFoundError("Background task not found", {"task_id": task_id})
     return BackgroundTask.model_validate(info, from_attributes=True)
+
+
+@router.get("/storage", summary="Storage use, orphaned files and retention policy")
+async def storage_report(lifecycle: LifecycleDep) -> dict[str, Any]:
+    return await lifecycle.report()
+
+
+@router.post("/storage/cleanup", summary="Prune old packages and orphaned files now")
+async def storage_cleanup(lifecycle: LifecycleDep) -> dict[str, Any]:
+    return await lifecycle.run()

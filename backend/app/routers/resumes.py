@@ -29,6 +29,7 @@ from app.schemas.resume import (
     TailoredVersionCreate,
     UploadResponse,
 )
+from app.services.lifecycle_service import resume_file_paths
 from app.services.resume_processing import PROFILE_TASK_KEY
 from app.services.resume_service import ResumeService
 
@@ -115,11 +116,14 @@ async def delete_resume(
     tasks: TaskManagerDep,
     processor: ProcessorDep,
 ) -> Response:
-    path, promoted = await service.delete(resume_id)
+    # The upload and every rendered version (PDF/DOCX) of it go with the resume.
+    files = await resume_file_paths(db, resume_id)
+    _, promoted = await service.delete(resume_id)
     if promoted is not None:
         await profiles.mark("pending")
     await db.commit()
-    await service.delete_file(path)  # after commit: never delete a file still referenced
+    for path in files:  # after commit: never delete a file still referenced
+        await service.delete_file(path)
     if promoted is not None:  # the profile was built from the deleted resume
         tasks.submit(
             "profile-generation",

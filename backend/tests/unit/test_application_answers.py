@@ -68,15 +68,24 @@ def test_every_answer_has_evidence_or_a_review_flag():
     assert row["question_key"] == "why_qualified" and isinstance(row["confidence"], Decimal)
 
 
-def test_why_company_is_flagged_as_personal():
-    a = answers()["why_company"]
-    assert a.needs_review and "Stripe" in a.answer and "Python, PostgreSQL and AWS" in a.answer
-
-
-def test_why_qualified_quotes_the_resume():
+def test_why_qualified_quotes_the_most_relevant_resume_lines():
     a = answers()["why_qualified"].answer
-    assert a.startswith("I am a Senior Backend Engineer with 10+ years of experience.")
+    # Years and the latest real title; no composite title.
+    assert a.startswith(
+        "I have 10+ years of professional experience, currently as Senior Software Engineer "
+        "at Acme Payments."
+    )
     assert "As Senior Software Engineer at Acme Payments: Built billing APIs in Python" in a
+    assert "Mentored" not in a  # unrelated to the posting
+
+
+def test_why_company_draft_is_factual_and_flagged():
+    a = answers()["why_company"]
+    assert a.answer == (
+        "I am interested in the Senior Backend Engineer role at Stripe. It centres on Python, "
+        "PostgreSQL and AWS, which is the work my experience is built on."
+    )
+    assert a.needs_review
 
 
 class TestSalary:
@@ -140,13 +149,20 @@ def test_years_and_skill_experience_come_from_role_dates():
     )
     assert years_experience(CandidateFacts()).needs_review
     resume = sample_resume()
-    assert [r.company for r in roles_using(resume, "PostgreSQL")] == ["Beta Logistics"]
+    # "postgres" at Acme counts for PostgreSQL too.
+    assert [r.company for r in roles_using(resume, "PostgreSQL")] == [
+        "Acme Payments",
+        "Beta Logistics",
+    ]
     python = skill_experience("Python", resume, True, TODAY)
-    # Acme Payments, Mar 2020 - Nov 2026 (current)
-    assert python.answer.startswith("About 6.8 years: I have used Python in 1 role")
+    # "Built billing APIs in Python ..." describes use: Acme, Mar 2020 - Nov 2026.
+    assert python.answer == (
+        "About 6.8 years: I have used Python in 1 role (Senior Software Engineer at Acme Payments)."
+    )
+    assert not python.needs_review
     assert python.evidence[0] == {
         "source": "resume",
-        "fact": "Senior Software Engineer at Acme Payments mentions Python",
+        "fact": "Senior Software Engineer at Acme Payments: 1 line describes using Python",
     }
     listed_only = skill_experience("Docker", resume, True, TODAY)
     assert listed_only.needs_review and "among my skills" in listed_only.answer
@@ -181,3 +197,20 @@ def test_polish_keeps_only_truthful_rewrites_of_free_text():
     assert by_key["why_company"].source == "rules"
     assert by_key["salary_expectations"].answer.startswith("I would like to learn more")
     assert len(rejected) == 1 and rejected[0].startswith("why_company")
+
+
+def test_intent_or_exposure_is_not_counted_as_use():
+    from app.agents.relevance import strong_mentions
+
+    assert (
+        strong_mentions("Designed APIs for future ML and GenAI integration", "Generative AI") == 0
+    )
+    assert strong_mentions("Built AI-ready platforms", "AI") == 0
+    assert strong_mentions("Exposure to Kubernetes clusters", "Kubernetes") == 0
+    assert strong_mentions("Built billing APIs in Python and postgres", "PostgreSQL") == 1
+    assert strong_mentions("Wrote Go services; let us go", "Go") == 1  # lowercase "go" is not Go
+    resume = sample_resume()
+    resume.experience[1].bullets.append("Prototyped designs for future GenAI integration")
+    answer = skill_experience("Generative AI", resume, False, TODAY)
+    assert answer.needs_review and answer.answer.startswith("My resume mentions Generative AI")
+    assert "names Generative AI only as a plan or exposure" in answer.evidence[0]["fact"]

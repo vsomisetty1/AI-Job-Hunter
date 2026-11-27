@@ -22,6 +22,7 @@ from app.scheduler.scheduler import SchedulerService
 from app.services.company_service import CompanyService
 from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
+from app.services.lifecycle_service import LifecycleService
 from app.services.package_service import PackageGenerator, PackageWorkflow
 from app.services.pipeline_service import JobPipeline
 from app.services.profile_service import ProfileService
@@ -123,6 +124,11 @@ def get_package_workflow(request: Request, db: DbSession) -> PackageWorkflow:
     return PackageWorkflow(db, request.app.state.storage)
 
 
+def get_lifecycle(request: Request) -> LifecycleService:
+    return cast(LifecycleService, request.app.state.lifecycle)
+
+
+LifecycleDep = Annotated[LifecycleService, Depends(get_lifecycle)]
 PackageGeneratorDep = Annotated[PackageGenerator, Depends(get_package_generator)]
 PackageWorkflowDep = Annotated[PackageWorkflow, Depends(get_package_workflow)]
 

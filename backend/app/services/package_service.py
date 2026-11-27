@@ -61,7 +61,7 @@ from app.agents.agent_9_application_answers import (
 from app.agents.runs import track_agent_run
 from app.core.exceptions import ConflictError, DomainValidationError, NotFoundError
 from app.models.application import Application
-from app.models.application_package import ApplicationPackage
+from app.models.application_package import ApplicationPackage, a_status
 from app.models.candidate_profile import CandidateProfile
 from app.models.cover_letter import CoverLetter
 from app.models.job import Job
@@ -460,7 +460,7 @@ class PackageWorkflow:
     ) -> ApplicationPackage:
         old = await self._lock(package_id)
         if old.status not in REGENERATABLE:
-            raise ConflictError(f"A {old.status} package cannot be regenerated.")
+            raise ConflictError(f"{a_status(old.status)} package cannot be regenerated.")
         newer = await self.repo.next_version(old.job_id, old.profile_id)
         if newer != old.version_number + 1:
             raise ConflictError("Only the newest package of a job can be regenerated.")
@@ -476,15 +476,18 @@ class PackageWorkflow:
         if pkg.status == "generated":
             pkg.status, pkg.reviewed_at = "reviewed", _now()
         elif pkg.status not in ("reviewed", "approved", "submitted"):
-            raise ConflictError(f"A {pkg.status} package cannot be marked reviewed.")
+            raise ConflictError(f"{a_status(pkg.status)} package cannot be marked reviewed.")
         return pkg
 
     async def approve(self, package_id: uuid.UUID, notes: str | None) -> ApplicationPackage:
         pkg = await self._lock(package_id)
         if pkg.status not in ("generated", "reviewed"):
-            raise ConflictError(f"A {pkg.status} package cannot be approved.")
+            raise ConflictError(f"{a_status(pkg.status)} package cannot be approved.")
         if pkg.resume_version_id is None:
             raise ConflictError("The package has no tailored resume (was it deleted?).")
+        job = await self.session.get(Job, pkg.job_id)
+        if job is None or job.status == "expired":
+            raise ConflictError("This job is no longer posted, so its package cannot be approved.")
         now = _now()
         app = await self.repo.application_for(pkg.job_id, pkg.profile_id)
         if app is not None and app.status not in ("drafted", "ready"):
@@ -527,7 +530,7 @@ class PackageWorkflow:
     async def reject(self, package_id: uuid.UUID, reason: str) -> ApplicationPackage:
         pkg = await self._lock(package_id)
         if pkg.status not in ("generated", "reviewed", "approved"):
-            raise ConflictError(f"A {pkg.status} package cannot be rejected.")
+            raise ConflictError(f"{a_status(pkg.status)} package cannot be rejected.")
         await self._withdraw_approval(pkg, f"Package rejected: {reason}")
         pkg.status, pkg.rejected_at, pkg.rejection_reason = "rejected", _now(), reason
         await self.session.flush()
