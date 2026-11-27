@@ -11,6 +11,7 @@ import type {
   ParsedResume,
   ScoringSummary,
   Settings,
+  SubmissionDetail,
 } from "@/types";
 
 export function parsedResume(overrides: Partial<ParsedResume> = {}): ParsedResume {
@@ -396,6 +397,66 @@ export function packageDetail(overrides: Partial<PackageDetail> = {}): PackageDe
         evidence: [{ source: "job", fact: "Senior Backend Engineer at Stripe" }],
         updated_at: "2026-11-27T10:00:00Z",
       },
+    ],
+    ...overrides,
+  };
+}
+
+export function submission(overrides: Partial<SubmissionDetail> = {}): SubmissionDetail {
+  return {
+    id: "sb1",
+    application_id: "ap1",
+    package_id: "pk1",
+    job_id: "j1",
+    job_title: "Senior Backend Engineer",
+    company_name: "Stripe",
+    job_status: "shortlisted",
+    platform: "greenhouse",
+    apply_url: "https://job-boards.greenhouse.io/embed/job_app?for=stripe&token=1",
+    mode: "APPROVAL_MODE",
+    status: "waiting_for_review",
+    step: "review",
+    attempts: 1,
+    error: null,
+    error_kind: null,
+    live: true,
+    ready: false,
+    missing_count: 1,
+    problem_count: 0,
+    queued_at: "2026-11-27T10:00:00Z",
+    started_at: "2026-11-27T10:00:01Z",
+    review_ready_at: "2026-11-27T10:00:20Z",
+    confirmed_at: null,
+    submitted_at: null,
+    failed_at: null,
+    cancelled_at: null,
+    updated_at: "2026-11-27T10:00:20Z",
+    review: {
+      resume: { status: "uploaded", file: "Jordan_Rivera_Resume.pdf", field: "Resume/CV" },
+      cover_letter: { status: "uploaded", file: "Jordan_Rivera_Cover_Letter.pdf", field: "Cover Letter" },
+      answers: [
+        { key: "first_name", label: "First Name", kind: "text", required: true, status: "filled", value: "Jordan", source: "resume", reason: "" },
+        { key: "gender", label: "Gender", kind: "combobox", required: false, status: "filled", value: "(voluntary: declined)", source: "rule", reason: "", sensitive: true },
+      ],
+      missing: [{ key: "team", label: "Which team?", kind: "select", reason: "No fact answers this question.", status: "needs_you" }],
+      problems: [],
+      left_for_you: [
+        { key: "team", label: "Which team?", kind: "select", required: true, status: "needs_you", value: "", source: "", reason: "No fact answers this question." },
+        { key: "privacy", label: "I agree to the privacy policy", kind: "checkbox", required: false, status: "consent", value: "", source: "", reason: "Consent boxes are left for you." },
+      ],
+      captcha: false,
+      fields_total: 5,
+      form_changed: false,
+      ready: false,
+    },
+    edits: {},
+    checkpoint: {},
+    screenshots: [{ index: 1, step: "review", label: "Form filled, waiting for your review", at: "2026-11-27T10:00:20Z" }],
+    confirmation_text: null,
+    recovery_hint: null,
+    editable_fields: [
+      { key: "first_name", label: "First Name", kind: "text", required: true, status: "filled", value: "Jordan", reason: "", options: [], edited: false },
+      { key: "team", label: "Which team?", kind: "select", required: true, status: "needs_you", value: "", reason: "", options: ["Payments", "Platform"], edited: false },
     ],
     ...overrides,
   };

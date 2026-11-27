@@ -26,6 +26,8 @@ echo "==> backend dependencies"
 if [ ! -x backend/.venv/bin/python ]; then
   python3.14 -m venv backend/.venv
   backend/.venv/bin/pip install -q -r backend/requirements-dev.txt
+  # Chromium for application automation (Phase 8); a no-op once installed.
+  backend/.venv/bin/python -m playwright install chromium
 fi
 # shellcheck disable=SC1091
 . backend/.venv/bin/activate

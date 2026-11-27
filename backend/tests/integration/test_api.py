@@ -25,6 +25,8 @@ async def app(build_live_app, claude):
     app = build_live_app(claude=claude, anthropic_api_key="sk-test", rescore_on_change=True)
     app.state.scoring.limiter = RateLimiter(60_000)
     yield app
+    # Settings edits re-score in the background: let that finish before resetting.
+    await app.state.task_manager.shutdown(timeout=30)
     await reset_settings()
 
 

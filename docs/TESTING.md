@@ -23,8 +23,8 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   when its key is present, and is skipped in CI by marker, not by accident.
 - **CI is extended** when a phase adds something new to verify (Phase 5 added the weekly
   `live-connectors.yml` workflow that runs `tests/live` against the real job boards;
-  Phase 7 adds a Playwright job with browsers; Phase 8 adds frontend unit/e2e tests; Phase 9 builds
-  the Docker images).
+  Phase 8 installs Chromium in the backend job for the browser tests; Phase 9 builds the
+  Docker images; Phase 10 adds frontend-through-backend e2e).
 - The phase summary states what is **not** covered.
 
 ## Test layout
@@ -79,6 +79,25 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   board note). The smoke script also checks package delete (409 when approved) and the
   storage endpoints. Real-data checks are manual: `scripts/validate_mvp.py` (see
   [MVP_VALIDATION.md](MVP_VALIDATION.md)); its output is personal and git-ignored.
+- Phase 8 (application automation): `tests/unit/test_automation.py` (labels and required
+  markers from real forms, concepts, option choice by meaning, every "never guess" rule,
+  education, years and ranges, US authorization, recovery classification and retries,
+  checkpoints, the session registry, adapter URLs); `tests/browser/` drives a **real
+  Chromium** (Playwright) against mock Greenhouse, Lever and Ashby pages
+  (`tests/fixtures/ats.py`, served at the real hosts through request routing, no network):
+  `test_form_engine.py` (every labelling technique and control type, fill and read back,
+  validation) and `test_agent_10_mock_ats.py` (fill, upload, review, edit, confirmed submit
+  sent exactly once, Lever's resume parse overwriting values, reload mid-fill, closed job,
+  changed form, upload error, rejection, CAPTCHA, no confirmation, browser crash and
+  relaunch, cookies); `tests/integration/test_automation_api.py` (the API workflow on
+  Postgres + Chromium: queue, start, review, edit, confirm-only submit and its effects on
+  application/package/job, cancel, retry with saved edits, automatic retry of transient
+  failures, unconfirmed submissions never resent, idle timeout, startup recovery, rules);
+  the migration test proves the database refuses autonomous mode and unconfirmed
+  submissions. CI installs Chromium (`python -m playwright install --with-deps chromium`);
+  locally, `AUTOMATION_BROWSER_PATH` can point at another Chromium. Live forms are checked
+  by hand in review mode: `scripts/validate_automation.py` (see
+  [AUTOMATION_VALIDATION.md](AUTOMATION_VALIDATION.md)).
 - Background re-scoring on settings/profile changes is off in the default test app
   (`rescore_on_change=False`, like the scheduler), because the rolled-back `db_app`
   shares one connection; the tests that cover it use the live-pool app.
@@ -91,6 +110,7 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
 ```bash
 cd backend && source .venv/bin/activate
 ruff check app tests migrations && ruff format --check app tests migrations && mypy
+python -m playwright install chromium   # once: browser tests and automation
 TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:<password>@localhost:5432/jobhunter_test pytest
 DATABASE_URL=postgresql://jobhunter:<password>@localhost:5432/jobhunter ../scripts/smoke_backend.sh
 pytest -m live tests/live       # optional: real Greenhouse/Lever/Ashby APIs (needs internet)
@@ -112,5 +132,8 @@ for compatibility:
 | eslint | 9.39.5 | 10.x | `eslint-config-next` 16 plugins support ESLint <= 9 |
 | typescript | 6.0.3 | 7.0.x | `typescript-eslint` (used by `eslint-config-next`) does not support TS 7 yet |
 | apscheduler | 3.11.3 | 4.0 pre-release | 4.x is not stable |
+
+`playwright` (Python) is 1.65.2, the latest; `pytest-playwright` was removed in Phase 8 (a
+sync-API plugin nothing used; the browser tests use their own async fixtures).
 
 Re-check these when upgrading.

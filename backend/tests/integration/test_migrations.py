@@ -316,3 +316,62 @@ def test_0005_downgrade_keeps_the_newest_cover_letter_and_drops_packages(db):
         assert conn.execute(text("SELECT count(*) FROM application_answers")).scalar() == 0
         assert "application_packages" not in inspect(eng).get_table_names()
     command.upgrade(cfg, "head")
+
+
+def test_0006_enforces_approval_mode_and_user_confirmation(db):
+    """The database itself refuses autonomous runs, a submission without the
+    user's confirmation, and two active runs for one application."""
+    import sqlalchemy.exc
+
+    eng, cfg = db
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        j = conn.execute(
+            text(
+                "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                "VALUES (:c, '1', 'Eng', 'https://x.test/1', :h) RETURNING id"
+            ),
+            {"c": c, "h": "d" * 64},
+        ).scalar()
+        a = conn.execute(
+            text("INSERT INTO applications (job_id, profile_id) VALUES (:j, :p) RETURNING id"),
+            {"j": j, "p": p},
+        ).scalar()
+    insert = (
+        "INSERT INTO application_submissions (application_id, platform, apply_url{cols}) "
+        "VALUES (:a, 'lever', 'https://jobs.lever.co/a/1/apply'{vals}) RETURNING id"
+    )
+
+    def attempt(cols: str = "", vals: str = "", **params) -> None:
+        with eng.begin() as conn:
+            conn.execute(text(insert.format(cols=cols, vals=vals)), {"a": a, **params})
+
+    for cols, vals in (
+        (", mode", ", 'AUTONOMOUS_MODE'"),  # not built: refused
+        (", status, submitted_at", ", 'submitted', now()"),  # never without confirmation
+        (", status", ", 'failed'"),  # a failure records when and why
+    ):
+        with pytest.raises(sqlalchemy.exc.IntegrityError):
+            attempt(cols, vals)
+    attempt()  # queued
+    with pytest.raises(sqlalchemy.exc.IntegrityError):
+        attempt()  # a second active run for the same application
+    attempt(", status, cancelled_at", ", 'cancelled', now()")  # finished runs may pile up
+    attempt(", status, confirmed_at, submitted_at", ", 'submitted', now(), now()")
+    with eng.begin() as conn:
+        sid = conn.execute(text("SELECT id FROM application_submissions LIMIT 1")).scalar()
+        conn.execute(
+            text("INSERT INTO automation_logs (submission_id, message) VALUES (:s, 'opened')"),
+            {"s": sid},
+        )
+    command.downgrade(cfg, "0005")
+    assert "application_submissions" not in inspect(eng).get_table_names()
+    assert "automation_logs" not in inspect(eng).get_table_names()
+    command.upgrade(cfg, "head")

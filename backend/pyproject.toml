@@ -31,6 +31,8 @@ ignore = ["B008", "ASYNC109"]
 # Vocabulary tables: one row per line reads better than one entry per line.
 "app/parsing/skills.py" = ["E501"]
 "app/parsing/sections.py" = ["E501"]
+# JavaScript evaluated in the page.
+"app/automation/dom.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]

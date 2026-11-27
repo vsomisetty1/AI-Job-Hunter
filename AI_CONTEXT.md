@@ -158,6 +158,18 @@ Claude):
 - Personal data from a real resume never goes into the repository: validation output lives
   in the git-ignored `validation-output/`.
 
+**Automation rules (Phase 8, ADR-014)** for anything that touches an application form:
+- Approval mode only: nothing is submitted without the user's explicit confirmation; the
+  database enforces it (`mode` = APPROVAL_MODE, `confirmed_at` before submitting). Do not
+  add a code path that submits otherwise without a new ADR.
+- Find fields by meaning (labels, ARIA, legends, nearby text), never by hard-coded
+  selectors; platform adapters hold only what is truly platform-specific.
+- Never guess: no fact, no answer; never type a "needs review" package answer; never tick
+  consent; decline or skip voluntary self-identification.
+- Never retry a submission automatically; an unconfirmed one fails as `unconfirmed`.
+- Real-site testing uses a synthetic persona and documents (attaching a file uploads it to
+  the ATS), review mode only: `scripts/validate_automation.py`.
+
 Models are configurable (`CLAUDE_MODEL_SCORING`, `CLAUDE_MODEL_WRITING`,
 `CLAUDE_MODEL_ANALYSIS`). The defaults are the current small, mid and large models.
 
@@ -173,7 +185,7 @@ no HTML scraping.
 | Ashby | `GET api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true` | Whole board; `isListed`; structured compensation |
 
 A board is identified by `(source, slug)`, where the slug is the last part of the public
-careers URL. Application automation (Phase 7) will use the same three providers through
+careers URL. Application automation (Phase 8) uses the same three providers through
 `automation/platforms/`.
 
 ## Why Workday is deferred
@@ -205,9 +217,10 @@ Revisit after Phase 7, starting with discovery only (see ADR-008).
 | Phase | Content |
 |---|---|
 | 6 | Done: Agent 4 rule filtering; Agent 5 scoring (deterministic baseline, optional Claude for a shortlist); scores in the Jobs UI; Settings page (Claude Code command path still to do) |
-| 7 | Done: application packages (Agents 6–9: tailored resume versions with change log, PDF/DOCX, cover letters, answers) with an approval workflow. Next: Agent 10 Playwright automation for Greenhouse/Lever/Ashby from approved packages, approval mode then autonomous mode with threshold and daily cap |
+| 7 | Done: application packages (Agents 6–9: tailored resume versions with change log, PDF/DOCX, cover letters, answers) with an approval workflow |
 | MVP validation | Done: validated on a real resume and 5.4k real postings before automation (see `docs/MVP_VALIDATION.md`): parsing, relevance-ranked tailoring, specific and honest letters and answers, data lifecycle (ADR-013), faster scoring, expired jobs cannot be approved |
-| 8 | Dashboard, applications, activity pages; learning insights (`learning/`) |
+| 8 | Done: application automation in **approval mode** (Agent 10, Playwright): fill approved packages into real Greenhouse/Lever/Ashby forms, review screen, confirmed submit, checkpoints and recovery, Applications UI (ADR-014, `docs/AUTOMATION_VALIDATION.md`) |
+| Next | Autonomous mode (threshold, daily cap) only after approval mode is validated in real use; dashboard, activity, learning insights (`learning/`) |
 | 9 | Docker images, full compose, deployment and Supabase docs (personal deployment; real auth before anything public) |
 | 10 | End-to-end tests (Playwright) in CI |
 | Later | Workday discovery; more providers; full-text search; optional multi-user mode (Supabase Auth) |

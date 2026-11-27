@@ -633,3 +633,163 @@ export interface PackageStarted {
 }
 
 export type PackageDoc = "resume" | "cover-letter" | "original-resume";
+
+// ---------------------------------------------------------------- automation (Phase 8)
+export type SubmissionStatus =
+  | "queued"
+  | "in_progress"
+  | "waiting_for_review"
+  | "submitting"
+  | "submitted"
+  | "failed"
+  | "cancelled";
+
+export type LogLevel = "debug" | "info" | "warning" | "error";
+
+export interface SubmissionStarted {
+  submission_id: string;
+  task_id: string | null;
+  status: SubmissionStatus;
+  detail: string;
+}
+
+export interface SubmissionSummary {
+  id: string;
+  application_id: string;
+  package_id: string | null;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  job_status: string;
+  platform: string;
+  apply_url: string;
+  mode: "APPROVAL_MODE";
+  status: SubmissionStatus;
+  step: string;
+  attempts: number;
+  error: string | null;
+  error_kind: string | null;
+  live: boolean;
+  ready: boolean | null;
+  missing_count: number;
+  problem_count: number;
+  queued_at: string;
+  started_at: string | null;
+  review_ready_at: string | null;
+  confirmed_at: string | null;
+  submitted_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
+  updated_at: string;
+}
+
+export interface ReviewField {
+  key: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  status: "filled" | "uploaded" | "needs_you" | "consent" | "skipped" | "failed";
+  value: string;
+  source: string;
+  reason: string;
+  sensitive?: boolean;
+  options?: string[];
+}
+
+export interface ReviewDoc {
+  status: "uploaded" | "pasted" | "not_asked" | "failed" | "needs_you" | "skipped";
+  file?: string | null;
+  field?: string | null;
+  reason?: string | null;
+}
+
+export interface ReviewProblem {
+  key: string | null;
+  label: string | null;
+  message: string;
+}
+
+export interface ReviewMissing {
+  key: string;
+  label: string;
+  kind: string;
+  reason: string;
+  status: string;
+}
+
+export interface SubmissionReview {
+  url?: string;
+  resume?: ReviewDoc;
+  cover_letter?: ReviewDoc;
+  answers?: ReviewField[];
+  missing?: ReviewMissing[];
+  problems?: ReviewProblem[];
+  left_for_you?: ReviewField[];
+  captcha?: boolean;
+  fields_total?: number;
+  form_changed?: boolean;
+  ready?: boolean;
+}
+
+export interface EditableField {
+  key: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  status: string;
+  value: string | boolean | string[];
+  reason: string;
+  options: string[];
+  edited: boolean;
+}
+
+export interface SubmissionDetail extends SubmissionSummary {
+  review: SubmissionReview;
+  edits: Record<string, string | boolean | string[]>;
+  checkpoint: Record<string, unknown>;
+  screenshots: { index: number; step: string; label: string; at: string | null }[];
+  confirmation_text: string | null;
+  recovery_hint: string | null;
+  editable_fields: EditableField[];
+}
+
+export interface ReadyPackage {
+  package_id: string;
+  application_id: string;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  platform: string;
+  supported: boolean;
+  job_status: string;
+  approved_at: string | null;
+}
+
+export interface AutomationQueue {
+  ready: ReadyPackage[];
+  active: SubmissionSummary[];
+  needs_attention: SubmissionSummary[];
+}
+
+export interface AutomationLog {
+  id: string;
+  submission_id: string;
+  job_title: string;
+  company_name: string;
+  level: LogLevel;
+  step: string | null;
+  message: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AutomationStatus {
+  enabled: boolean;
+  mode: "APPROVAL_MODE";
+  autonomous_available: boolean;
+  headless: boolean;
+  browser_running: boolean;
+  open_sessions: number;
+  max_sessions: number;
+  session_idle_minutes: number;
+}

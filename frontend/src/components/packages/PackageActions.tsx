@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { errorMessage } from "@/lib/api/client";
+import { automationApi } from "@/lib/api/applications";
 import { packagesApi } from "@/lib/api/packages";
 import type { PackageDetail } from "@/types";
 
@@ -51,6 +52,19 @@ export function PackageActions({ pkg, onChange }: { pkg: PackageDetail; onChange
         {canReject && (
           <Button variant="danger" onClick={() => setMode(mode === "reject" ? "none" : "reject")} disabled={busy}>
             Reject
+          </Button>
+        )}
+        {pkg.status === "approved" && (
+          <Button
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                const started = await automationApi.start(pkg.id);
+                router.push(`/applications/${started.submission_id}`);
+              })
+            }
+          >
+            Fill application form
           </Button>
         )}
         {pkg.status === "approved" && (

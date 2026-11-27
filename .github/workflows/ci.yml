@@ -62,6 +62,10 @@ jobs:
           pip install -r requirements-dev.txt
           pip check
 
+      - name: Install Chromium (application automation tests)
+        # Browser tests drive a real Chromium against mock ATS pages (no network).
+        run: python -m playwright install --with-deps chromium
+
       - name: Lint (incl. security rules)
         run: ruff check app tests migrations
 
@@ -80,7 +84,7 @@ jobs:
       - name: Server version
         run: psql -h localhost -U jobhunter -d jobhunter -tAc "SHOW server_version"
 
-      - name: Tests (unit + database integration)
+      - name: Tests (unit, database integration, browser)
         # Any skip fails the job: a misconfigured TEST_DATABASE_URL would
         # otherwise silently skip every database test.
         run: |

@@ -122,9 +122,12 @@ async def set_settings(**values: Any) -> None:
 
 
 async def reset_settings() -> None:
-    """Back to the column defaults (the row is recreated by the app on demand)."""
-    await execute("DELETE FROM settings")
-    await execute("INSERT INTO settings (id) VALUES (1)")
+    """Back to the column defaults, in one transaction. The app recreates the row on
+    demand (INSERT ... ON CONFLICT DO NOTHING), possibly from a background task that is
+    still running, so the insert here must tolerate a concurrent one."""
+    async with get_engine().begin() as conn:
+        await conn.execute(text("DELETE FROM settings"))
+        await conn.execute(text("INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING"))
 
 
 async def _insert(sql: str, **params: Any) -> uuid.UUID:

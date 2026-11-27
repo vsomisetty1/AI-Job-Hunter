@@ -166,6 +166,13 @@ expect 409 POST "/api/v1/packages/$PKG_ID/approve"
 expect 409 DELETE "/api/v1/packages/$PKG_ID"
 expect 200 GET "/api/v1/system/storage"
 expect 200 POST "/api/v1/system/storage/cleanup"
+# Application automation (Phase 8, approval mode): queue and rules, no browser needed.
+expect 200 GET "/api/v1/automation/status"
+expect 200 GET "/api/v1/automation/queue"
+expect 200 GET "/api/v1/automation/submissions"
+expect 200 GET "/api/v1/automation/logs"
+expect 422 POST "/api/v1/automation/submissions/00000000-0000-0000-0000-000000000000/submit" '{}'
+expect 404 POST "/api/v1/automation/submissions" '{"package_id": "00000000-0000-0000-0000-000000000000"}'
 
 grep -q "Traceback" "$LOG" && fail "traceback in server log"
 echo "smoke test passed"

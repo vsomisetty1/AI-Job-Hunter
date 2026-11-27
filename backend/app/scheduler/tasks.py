@@ -18,6 +18,7 @@ from app.models.llm_cache_entry import LLMCacheEntry
 from app.repositories.package_repository import PackageRepository
 from app.repositories.settings_repository import SettingsRepository
 from app.scheduler.scheduler import SchedulerService
+from app.services.automation_service import AutomationService
 from app.services.discovery_service import DiscoveryInProgressError
 from app.services.lifecycle_service import LifecycleService
 from app.services.pipeline_service import JobPipeline
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 DISCOVERY_JOB_ID = "job_discovery"
 MAINTENANCE_JOB_ID = "maintenance"
+AUTOMATION_SWEEP_JOB_ID = "automation_idle_sweep"
 INTERRUPTED = "Interrupted by a restart; run it again."
 
 
@@ -105,6 +107,7 @@ def register_jobs(
     settings: Settings,
     pipeline: JobPipeline,
     lifecycle: LifecycleService | None = None,
+    automation: AutomationService | None = None,
 ) -> None:
     async def discover() -> dict[str, object]:
         return await run_discovery_cycle(pipeline)
@@ -123,6 +126,8 @@ def register_jobs(
                 result["storage"] = await lifecycle.run()
             except Exception:  # storage unreachable: the next run retries
                 logger.exception("storage cleanup failed")
+        if automation is not None:
+            result["automation_logs"] = await automation.prune_logs()
         return result
 
     scheduler.add_interval_job(
@@ -131,3 +136,15 @@ def register_jobs(
         minutes=24 * 60,
         name="Prune caches, old run logs, old packages and orphaned files",
     )
+
+    if automation is not None:
+
+        async def sweep() -> dict[str, object]:
+            return {"closed": await automation.sweep_idle()}
+
+        scheduler.add_interval_job(
+            AUTOMATION_SWEEP_JOB_ID,
+            sweep,
+            minutes=5,
+            name="Close application forms left open past the idle timeout",
+        )

@@ -11,7 +11,9 @@ Policy (personal use; see ADR-013):
   cover letter they created, unless an application or another package still
   points to them. A user can delete such a package (or a generated/reviewed
   one) at once with DELETE /packages/{id}.
-* Orphaned files (under resumes/ or generated/, referenced by no row) are
+* Automation screenshots (automation/) are kept with their submission row and
+  become orphans when it goes (its application is deleted).
+* Orphaned files (under resumes/, generated/ or automation/, referenced by no row) are
   deleted by the daily sweep once older than ORPHAN_GRACE_HOURS: generation
   writes files just before the rows that point to them, so a younger file may
   simply not be committed yet.
@@ -33,6 +35,7 @@ from app.core.config import Settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models.application import Application
 from app.models.application_package import ApplicationPackage, a_status
+from app.models.application_submission import ApplicationSubmission
 from app.models.cover_letter import CoverLetter
 from app.models.resume import Resume
 from app.models.resume_version import ResumeVersion
@@ -40,7 +43,7 @@ from app.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
 
-STORAGE_PREFIXES = ("resumes", "generated")
+STORAGE_PREFIXES = ("resumes", "generated", "automation")
 PRUNABLE = ("superseded", "rejected", "failed")
 DELETABLE = (*PRUNABLE, "generated", "reviewed")
 
@@ -52,6 +55,8 @@ def _paths(*holders: Any) -> list[str]:
 async def referenced_paths(session: AsyncSession) -> set[str]:
     """Every storage path a row points to."""
     paths: set[str] = set(await session.scalars(select(Resume.storage_path)))
+    for shots in await session.scalars(select(ApplicationSubmission.screenshots)):
+        paths |= {str(s["path"]) for s in shots if isinstance(s, dict) and s.get("path")}
     for column in (ResumeVersion.pdf_path, ResumeVersion.docx_path,
                    CoverLetter.pdf_path, CoverLetter.docx_path):  # fmt: skip
         paths |= {p for p in await session.scalars(select(column).where(column.is_not(None))) if p}

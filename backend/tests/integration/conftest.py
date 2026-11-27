@@ -124,5 +124,6 @@ async def build_live_app(make_app, migrated_db_url):
     finally:
         for app in apps:
             await app.state.task_manager.shutdown(timeout=30)
+            await app.state.automation.shutdown()
         await clean()
         await dispose_engine()

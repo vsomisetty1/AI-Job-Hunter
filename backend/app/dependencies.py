@@ -19,6 +19,7 @@ from app.core.database import session_scope
 from app.core.security import Principal, get_current_user
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
+from app.services.automation_service import AutomationService
 from app.services.company_service import CompanyService
 from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
@@ -131,6 +132,14 @@ def get_lifecycle(request: Request) -> LifecycleService:
 LifecycleDep = Annotated[LifecycleService, Depends(get_lifecycle)]
 PackageGeneratorDep = Annotated[PackageGenerator, Depends(get_package_generator)]
 PackageWorkflowDep = Annotated[PackageWorkflow, Depends(get_package_workflow)]
+
+
+# ------------------------------------------------------------ Phase 8 services
+def get_automation(request: Request) -> AutomationService:
+    return cast(AutomationService, request.app.state.automation)
+
+
+AutomationDep = Annotated[AutomationService, Depends(get_automation)]
 
 
 def get_company_service(db: DbSession, connectors: ConnectorsDep) -> CompanyService:

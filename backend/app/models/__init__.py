@@ -5,6 +5,7 @@ from app.models.application import Application
 from app.models.application_answer import ApplicationAnswer
 from app.models.application_event import ApplicationEvent
 from app.models.application_package import ApplicationPackage
+from app.models.application_submission import ApplicationSubmission, AutomationLog
 from app.models.base import Base
 from app.models.browser_session import BrowserSession
 from app.models.candidate_profile import CandidateProfile
@@ -24,6 +25,8 @@ __all__ = [
     "ApplicationAnswer",
     "ApplicationEvent",
     "ApplicationPackage",
+    "ApplicationSubmission",
+    "AutomationLog",
     "Base",
     "BrowserSession",
     "CandidateProfile",

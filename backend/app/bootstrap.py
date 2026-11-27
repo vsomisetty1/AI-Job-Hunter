@@ -10,12 +10,15 @@ from app.agents.agent_1_profile_inference import ProfileInferenceAgent
 from app.agents.agent_6_resume_tailoring import ResumeTailoringAgent
 from app.agents.agent_8_cover_letters import CoverLetterAgent
 from app.agents.agent_9_application_answers import ApplicationAnswersAgent
+from app.agents.agent_10_application_agent import ApplicationAgent
+from app.automation.browser_manager import BrowserManager, ContextHook, SessionRegistry
 from app.connectors.http import HttpFetcher, RetryPolicy
 from app.connectors.registry import build_connectors
 from app.core.config import Settings
 from app.documents.scanner import VirusScanner, build_scanner
 from app.llm.cache import LLMCache
 from app.llm.client import ClaudeClient
+from app.services.automation_service import AutomationService
 from app.services.discovery_service import DiscoveryService
 from app.services.filtering_service import FilteringService
 from app.services.lifecycle_service import LifecycleService
@@ -35,6 +38,7 @@ def init_services(
     storage: StorageBackend | None = None,
     scanner: VirusScanner | None = None,
     http: HttpFetcher | None = None,
+    browser_context_hook: ContextHook | None = None,
 ) -> None:
     llm = ClaudeClient(
         settings, cache=LLMCache(sessionmaker, settings.llm_cache_ttl_days), client=anthropic_client
@@ -76,5 +80,18 @@ def init_services(
         ApplicationAnswersAgent(llm, sessionmaker),
     )
     # A new or rebuilt profile changes every score.
+
+    browser = BrowserManager(settings, context_hook=browser_context_hook)
+    registry = SessionRegistry(
+        settings.automation_max_sessions, settings.automation_session_idle_minutes * 60
+    )
+    app.state.automation = AutomationService(
+        settings,
+        sessionmaker,
+        storage,
+        browser,
+        registry,
+        ApplicationAgent(settings, browser, registry, sessionmaker=sessionmaker),
+    )
     if settings.rescore_on_change:
         app.state.processor.after_profile = app.state.pipeline.rescore

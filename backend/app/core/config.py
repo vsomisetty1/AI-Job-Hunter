@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Job Hunter API"
-    app_version: str = "0.7.0"
+    app_version: str = "0.8.0"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     log_json: bool | None = None  # default: JSON in production only
@@ -90,6 +90,25 @@ class Settings(BaseSettings):
     orphan_grace_hours: int = Field(default=24, ge=1)
     # agent_runs older than this are deleted by the daily maintenance job.
     agent_run_retention_days: int = Field(default=180, ge=1)
+
+    # Application automation (Phase 8, approval mode only: the app never
+    # submits without the user's confirmation).
+    automation_enabled: bool = True
+    # false shows the browser window (to watch a run or solve a CAPTCHA).
+    automation_headless: bool = True
+    # A Chromium/Chrome binary to use instead of Playwright's own download.
+    automation_browser_path: str | None = None
+    automation_slow_mo_ms: int = Field(default=0, ge=0, le=5000)
+    automation_navigation_timeout_ms: int = Field(default=45_000, ge=1000)
+    automation_action_timeout_ms: int = Field(default=10_000, ge=500)
+    # Open forms waiting for review; more runs wait in the queue.
+    automation_max_sessions: int = Field(default=2, ge=1, le=10)
+    # An open form nobody touched for this long is closed (Retry reopens it).
+    automation_session_idle_minutes: int = Field(default=30, ge=1)
+    # Automatic attempts for transient failures (crash, timeout, network).
+    automation_max_attempts: int = Field(default=2, ge=1, le=5)
+    # How long to wait for the site to confirm a submission.
+    automation_submit_timeout_seconds: int = Field(default=45, ge=5)
 
     # Resume uploads
     max_upload_mb: float = Field(default=10.0, gt=0, le=50)

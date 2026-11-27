@@ -25,8 +25,9 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | 5 | Job discovery (Agents 2, 3; Agent 4 filtering moves to Phase 6) | Done |
 | 6 | Rule filtering + scoring (Agents 4, 5; optional Claude scoring; learning moves to Phase 8) | Done |
 | 7 | Application packages + approval workflow (Agents 6, 7, 8, 9) | Done |
-| 7b | Browser automation from approved packages (Agent 10) | Pending |
-| 8 | Frontend | Pending |
+| MVP | Validation on a real resume and real jobs | Done |
+| 8 | Application automation, approval mode (Agent 10, Playwright) | Done |
+| 8b | Autonomous mode (after approval mode is validated); dashboard and insights | Pending |
 | 9 | Deployment | Pending |
 | 10 | Testing | Pending |
 
@@ -174,13 +175,47 @@ From a job page, **Generate package** builds everything needed to apply, for you
    personal, is marked **needs your input** instead of guessed.
 
 **Approval** (Packages page): review, edit answers, then **Approve** (the job's application
-becomes `ready` in approval mode, for the coming automation phase), **Reject** (with a
+becomes `ready` in approval mode, for automation), **Reject** (with a
 reason), **Regenerate** (a new version; the old one is kept as superseded) or **I applied
-with this package**. The app never submits anything itself.
+with this package**. Packages are filled into real forms on the Applications page.
 
 API: `POST /api/v1/packages` (202), `GET /api/v1/packages?status=&job_id=`,
 `GET /api/v1/packages/{id}`, `POST .../{id}/review|approve|reject|regenerate|mark-submitted`,
 `PATCH .../{id}/answers/{answer_id}`, `GET .../{id}/files/{resume|cover-letter|original-resume}.{pdf|docx}`.
+
+## Application automation, approval mode (Phase 8)
+
+From **Applications** (or an approved package), **Fill application form** opens the job's
+real Greenhouse, Lever or Ashby application in Chromium (Agent 10, Playwright):
+
+1. **Open** the form (Greenhouse through its embeddable form, which works for every board).
+2. **Upload** the tailored resume and cover letter (on Lever, which has no cover-letter
+   upload, the letter goes into "Additional information"), and wait for sites that read
+   the resume to finish, so they do not overwrite the answers.
+3. **Fill** every field a fact supports. Fields are found by meaning (labels, ARIA,
+   legends, nearby text, placeholders), not by hard-coded selectors; text boxes, dropdowns,
+   React-select comboboxes, radio buttons, checkboxes, Yes/No buttons and uploads all work.
+4. **Validate**: required fields still empty, the form's own error messages, CAPTCHAs.
+5. **Stop** with a screenshot and the **review screen**: resume and cover letter status,
+   answers inserted (and where each came from), missing fields, validation problems.
+   **Edit** any field (it changes in the open form), **Retry** (reopen and refill from the
+   checkpoint), **Cancel**, or **Submit**, which needs an explicit confirmation.
+
+What it never does: submit without your confirmation (the database refuses it too), type a
+package answer still marked "needs your input", tick consent or certification boxes, or
+guess voluntary self-identification (it picks "decline" where offered). Failures (browser
+crash, timeout, network, upload refused, job closed, changed form, CAPTCHA, no
+confirmation) are recorded with what to do next; transient ones retry automatically, a
+submission never does. There is no autonomous mode yet.
+
+Setup: `playwright install chromium` in the backend virtualenv (once). `AUTOMATION_HEADLESS=false`
+shows the browser, which is how you solve a CAPTCHA. See ADR-014 and
+[docs/AUTOMATION_VALIDATION.md](docs/AUTOMATION_VALIDATION.md).
+
+API: `GET /api/v1/automation/{status,queue}`, `POST /api/v1/automation/submissions` (202),
+`GET .../submissions?status=`, `GET .../submissions/{id}`, `PATCH .../{id}/fields`,
+`POST .../{id}/retry|cancel`, `POST .../{id}/submit` with `{"confirm": true}`,
+`GET .../{id}/screenshots/{n}`, `GET /api/v1/automation/logs?submission_id=&level=`.
 
 ## Run it locally
 
@@ -202,7 +237,7 @@ python -m app             # binds BACKEND_HOST:BACKEND_PORT, one worker
 
 - Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
 - Probes: `GET /health` (liveness), `GET /health/ready` (database + migrations + scheduler)
-- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/system/{info,jobs,tasks}`
+- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/scoring`, `/api/v1/packages`, `/api/v1/automation`, `/api/v1/system/{info,jobs,tasks,storage}`
 - Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
 - Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
 
@@ -214,7 +249,7 @@ Layout (imports only point down; `tests/unit/test_architecture.py` enforces it):
 | HTTP | `routers/`, `dependencies.py` (dependency injection) |
 | jobs | `scheduler/` (scheduled jobs, background task manager) |
 | business logic | `services/`, `learning/` |
-| workers | `agents/` (parser, profile; `agents/runs.py` records `agent_runs`) |
+| workers | `agents/` (Agents 0–10; `agents/runs.py` records `agent_runs`) |
 | queries | `repositories/` (never commit) |
 | adapters | `documents/`, `storage/`, `llm/`, `parsing/`, `connectors/`, `automation/` |
 | foundation | `core/` (config, logging, errors, database, auth, middleware) |

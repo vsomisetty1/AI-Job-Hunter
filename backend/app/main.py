@@ -41,6 +41,11 @@ OPENAPI_TAGS = [
         "name": "packages",
         "description": "Application packages: tailored resume, cover letter, answers; approval.",
     },
+    {
+        "name": "automation",
+        "description": "Fill approved packages into ATS forms; you review and confirm every "
+        "submission (approval mode only).",
+    },
     {"name": "system", "description": "App info, scheduled jobs and background tasks."},
 ]
 
@@ -65,11 +70,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_services(app, settings, sessionmaker=get_sessionmaker())
     try:
         await recover_interrupted_work()
+        await app.state.automation.recover_interrupted()
     except Exception:  # database down: start anyway; /health/ready reports it
         logger.exception("could not recover interrupted work at startup")
     app.state.task_manager = BackgroundTaskManager()
     app.state.scheduler = SchedulerService(enabled=settings.scheduler_enabled)
-    register_jobs(app.state.scheduler, settings, app.state.pipeline, app.state.lifecycle)
+    register_jobs(
+        app.state.scheduler, settings, app.state.pipeline, app.state.lifecycle,
+        app.state.automation,
+    )  # fmt: skip
     app.state.scheduler.start()
     logger.info(
         "%s %s started (env=%s, auth=%s)",
@@ -83,6 +92,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         app.state.scheduler.shutdown()
         await app.state.task_manager.shutdown()
+        await app.state.automation.shutdown()
         await app.state.http.aclose()
         await dispose_engine()
         logger.info("shutdown complete")

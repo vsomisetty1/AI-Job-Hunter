@@ -1,5 +1,6 @@
-// Applications page
-// PLACEHOLDER - minimal valid page; implemented in PHASE 8.
-export default function ApplicationsPage() {
-  return <h1>Applications page</h1>;
+// Applications queue (automation, approval mode).
+import { ApplicationsQueue } from "@/components/applications/ApplicationsQueue";
+
+export default function Page() {
+  return <ApplicationsQueue />;
 }

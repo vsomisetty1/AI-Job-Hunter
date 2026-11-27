@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.security import get_current_user
 from app.routers import (
+    automation,
     companies,
     discovery,
     health,
@@ -34,6 +35,7 @@ api_v1_router.include_router(companies.router)
 api_v1_router.include_router(discovery.router)
 api_v1_router.include_router(scoring.router)
 api_v1_router.include_router(packages.router)
+api_v1_router.include_router(automation.router)
 api_v1_router.include_router(system.router)
 
 health_router = health.router

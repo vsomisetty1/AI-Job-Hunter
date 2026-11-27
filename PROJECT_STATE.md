@@ -1,13 +1,14 @@
 # Project state
 
-Snapshot of the repository as of **2026-11-27**, at the commit `chore: validate MVP before automation` (after Phase 7).
+Snapshot of the repository as of **2026-11-27**, at the Phase 8 commit `feat: application automation approval mode`.
 It was written from the code, schema, tests and git history, not from memory.
 Update it at the end of every phase.
 
 Companion documents:
 - [AI_CONTEXT.md](AI_CONTEXT.md): objectives, conventions, strategy
-- [docs/architecture/](docs/architecture/): ADRs 001–013
+- [docs/architecture/](docs/architecture/): ADRs 001–014
 - [docs/MVP_VALIDATION.md](docs/MVP_VALIDATION.md): real-resume, real-job validation before automation
+- [docs/AUTOMATION_VALIDATION.md](docs/AUTOMATION_VALIDATION.md): application automation on live forms (review mode)
 - [docs/TESTING.md](docs/TESTING.md): CI and test layout
 - [docs/VALIDATION.md](docs/VALIDATION.md): the real-world discovery check
 
@@ -23,9 +24,10 @@ Companion documents:
 | 5. Job discovery | `e505d36` | Greenhouse/Lever/Ashby connectors, normalization, deduplication, persistence, discovery runs and monitoring, scheduler, Jobs and Discovery UI, real-world validation script |
 | 6. Filtering and scoring | `5edc75b` | Migration 0004, cross-board duplicate sweep, Agent 4 rule filter, Agent 5 rule-based scoring, optional Claude scoring (cached, capped, paced), Discovery → Deduplication → Filtering → Scoring pipeline, scoring API, Jobs score column/filters/detail breakdown, Settings page |
 | 7. Application packages | `3624669` | Migration 0005; Agent 6 tailoring with change log; Agent 7 PDF/DOCX rendering; Agent 8 cover letters; Agent 9 answers; truthfulness guard; package generation (background) and approval workflow (review, approve, reject, regenerate, mark submitted); packages API; approval queue, review, tailored resume, diff, cover letter and answers pages |
-| MVP validation | `chore: validate MVP before automation` | Real resume + 5.4k real jobs: parsing fixes (DOCX tables, dates, locations, degrees, certifications, arrangement qualifiers, taxonomy), relevance-ranked tailoring/letters/answers (`agents/relevance.py`), honest skill claims, scoring calibration (`rules-3`) and 3× faster scoring, data lifecycle (package delete, retention, orphan sweep, storage report; ADR-013), empty-board note, expired jobs cannot be approved, `scripts/validate_mvp.py` |
+| MVP validation | `a0086bf` | Real resume + 5.4k real jobs: parsing fixes (DOCX tables, dates, locations, degrees, certifications, arrangement qualifiers, taxonomy), relevance-ranked tailoring/letters/answers (`agents/relevance.py`), honest skill claims, scoring calibration (`rules-3`) and 3× faster scoring, data lifecycle (package delete, retention, orphan sweep, storage report; ADR-013), empty-board note, expired jobs cannot be approved, `scripts/validate_mvp.py` |
+| 8. Application automation (approval mode) | `feat: application automation approval mode` | Migration 0006 (submissions, automation logs; approval mode and user confirmation enforced in the database); universal form engine (fields by labels/ARIA/legends/nearby text, every control type, read-back); semantic field matcher; Playwright browser manager (one Chromium, context per run, cookies per platform, live review sessions with cap and idle timeout); Greenhouse/Lever/Ashby adapters; Agent 10 (upload, fill, validate, screenshot, stop for review; edit; confirmed submit); checkpoints and failure recovery; automation API; Applications queue, review, history, logs and recovery UI; mock-ATS browser tests; real-world review-mode validation (`scripts/validate_automation.py`) |
 
-**Not started:** browser automation (Agent 10, the second half of the original Phase 7), learning/insights (moved to Phase 8), Phase 8 (remaining frontend), Phase 9 (deployment), Phase 10 (end-to-end testing).
+**Not started:** autonomous mode (after approval mode is validated with real use), dashboard and learning/insights, Phase 9 (deployment), Phase 10 (end-to-end testing).
 
 ## 2. Current architecture
 
@@ -85,7 +87,12 @@ Key rules:
 - **Application packages:**
   - From a job page, generate a package: a resume tailored to the job (reordered, respelled, optionally reworded by Claude; never with added skills, employers, dates or numbers), a cover letter (150–300 words, from resume facts), and answers to common questions (why this company, why qualified, salary, relocation, sponsorship, work authorization, years and per-skill experience), each with its evidence.
   - PDF and DOCX of the tailored and the original resume and of the letter (ATS-friendly).
-  - Review every change with its reason, edit answers, then approve (the application becomes `ready` in approval mode), reject, regenerate (new version) or record that you applied. Nothing is submitted by the app.
+  - Review every change with its reason, edit answers, then approve (the application becomes `ready` in approval mode), reject, regenerate (new version) or record that you applied.
+- **Application automation (approval mode):**
+  - Applications page: approved packages ready to fill, open forms waiting for review, failed runs with recovery actions.
+  - "Fill application form" opens the real Greenhouse/Lever/Ashby form in Chromium, uploads the tailored resume and cover letter, fills every field a fact supports, validates, screenshots and stops.
+  - Review screen: resume/cover letter status, answers inserted with their source, missing fields (answer them inline: the open form changes), the form's validation messages, fields left for you (consent, self-identification, unknowns), screenshots. Retry, cancel, or submit with an explicit confirmation.
+  - Submission history and structured automation logs; application, package and job statuses follow a confirmed submission.
 - **Monitoring:**
   - Discovery runs with counts and per-company results.
   - Per-company crawl status and failure counts.
@@ -98,7 +105,7 @@ Verified live on 2026-11-27: 7 real boards, 1,697 jobs stored. A repeat run inse
 
 ## 4. Database summary
 
-PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0005**. `backend/schema.sql` is the readable reference. Migrations execute frozen SQL files (`backend/migrations/sql/`) pinned by SHA-256 in `tests/unit/test_schema_sql.py`.
+PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0006**. `backend/schema.sql` is the readable reference. Migrations execute frozen SQL files (`backend/migrations/sql/`) pinned by SHA-256 in `tests/unit/test_schema_sql.py`.
 
 | Table | Purpose | Used by |
 |---|---|---|
@@ -115,8 +122,10 @@ PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0005**. `backend/sc
 | `application_packages` | One per generation: job, profile, version, status (generating → generated → reviewed → approved → submitted; rejected/failed/superseded), links to score, base and tailored resume version, cover letter and application; score snapshot; lifecycle timestamps; one live package per job | Phase 7 |
 | `cover_letters` | Every generated letter (version per job + profile), word count, method (`rules`/`claude`), facts and notes | Phase 7 |
 | `application_answers` | Answers owned by a package (or later an application) with source, confidence, `needs_review` and evidence | Phase 7 |
-| `applications`, `application_events` | Created/updated on approval (`ready`, APPROVAL_MODE) with the package's artifacts; events for created/approved/withdrawn/submitted | Phase 7 (automation: next phase) |
-| `browser_sessions` | Playwright storage state per platform | **unused**, next phase |
+| `applications`, `application_events` | Created/updated on approval (`ready`, APPROVAL_MODE) with the package's artifacts; `automation_state` follows runs; events for created/approved/automation_started/needs_manual/retry/failed/submitted | Phases 7–8 |
+| `application_submissions` | One automation run: platform, apply URL, mode (APPROVAL_MODE only), status (queued → in_progress → waiting_for_review → submitting → submitted; failed/cancelled), step, checkpoint, review report, user edits, screenshots, attempts, error kind, `confirmed_at` (required before submitting), timestamps; one active run per application | Phase 8 |
+| `automation_logs` | Append-only structured log lines per run (level, step, message, detail) | Phase 8 |
+| `browser_sessions` | Playwright storage state (cookies) per platform, saved after each run | Phase 8 |
 
 Conventions:
 - uuid primary keys; `timestamptz`.
@@ -136,10 +145,10 @@ Stack:
 
 | Area | Implemented | Placeholder |
 |---|---|---|
-| Routers (`/api/v1`) | `resumes`, `profile`, `settings`, `system`, `jobs`, `companies`, `discovery`, `scoring`, `packages`; unversioned `health` | `applications`, `insights`, `agent_runs` |
-| Services | resume, resume_processing, profile, settings, pipeline (`JobPipeline`), job, company, discovery, filtering, scoring, package (`PackageGenerator`, `PackageWorkflow`), job_normalizer | application (automation) |
-| Agents | 0 resume parser, 1 profile inference, 2 job discovery, 3 deduplication, 4 rule filtering, 5 rule-based scoring, 6 resume tailoring, 7 PDF/DOCX rendering, 8 cover letters, 9 application answers; `truthfulness.py`; `runs.py` (agent_runs) | 10 application agent |
-| Adapters | connectors (3 platforms), documents, parsing, llm (client, cache, pricing, rate limiter; prompts for parse/profile/skills/career/job scoring/tailoring/cover letter/answers), storage (local, Supabase) | automation (Playwright) |
+| Routers (`/api/v1`) | `resumes`, `profile`, `settings`, `system`, `jobs`, `companies`, `discovery`, `scoring`, `packages`, `automation`; unversioned `health` | `insights`, `agent_runs` |
+| Services | resume, resume_processing, profile, settings, pipeline (`JobPipeline`), job, company, discovery, filtering, scoring, package (`PackageGenerator`, `PackageWorkflow`), lifecycle, automation (`AutomationService`), job_normalizer | application |
+| Agents | 0 resume parser, 1 profile inference, 2 job discovery, 3 deduplication, 4 rule filtering, 5 rule-based scoring, 6 resume tailoring, 7 PDF/DOCX rendering, 8 cover letters, 9 application answers, 10 application automation; `truthfulness.py`; `relevance.py`; `runs.py` (agent_runs) | — |
+| Adapters | connectors (3 platforms), documents, parsing, llm (client, cache, pricing, rate limiter; prompts for parse/profile/skills/career/job scoring/tailoring/cover letter/answers), storage (local, Supabase), automation (browser manager, DOM extraction, form engine, field matcher, checkpoints, recovery, Greenhouse/Lever/Ashby adapters) | — |
 
 Behaviour:
 - **Errors:** every error is returned as `{"error": {"code", "message", "details"}}` and carries an `X-Request-ID`.
@@ -158,6 +167,9 @@ Stack: Next.js 16.4 (App Router), React 19.3, TypeScript 6.0, Tailwind 4, SWR 2.
 | `/settings` | Done: locations, workplace, employment types, salary, sponsorship, exclusions, Claude scoring |
 | `/discovery` | Done: run and follow discovery, connector health, companies, suggestions, run history |
 | `/packages` | Done: approval queue (needs review / approved / submitted / rejected & failed / all) |
+| `/applications` | Done: queue (ready to fill, in progress / waiting for review, needs attention with failure recovery) |
+| `/applications/[id]` | Done: application review (progress, checklist, missing fields with inline answers, validation problems, answers inserted, left for you, screenshots, retry / cancel / confirmed submit) |
+| `/applications/history`, `/applications/logs` | Done: submission history (status filter, timestamps, errors); automation logs (level filter, per run) |
 | `/packages/[id]` (+ `/resume`, `/diff`, `/cover-letter`, `/answers`) | Done: package review with approve/reject/regenerate/“I applied”, tailored resume viewer, resume diff viewer, cover letter viewer, answers viewer with editing; downloads |
 | `/` (dashboard), `/applications`, `/activity` | Placeholder pages |
 
@@ -213,21 +225,40 @@ Lifecycle: `LifecycleService` (`services/lifecycle_service.py`) runs in the dail
 job; `DELETE /packages/{id}`, `GET /system/storage`, `POST /system/storage/cleanup`;
 settings `PACKAGE_RETENTION_DAYS` (90) and `ORPHAN_GRACE_HOURS` (24).
 
+## 8e. Application automation summary (Phase 8)
+
+See ADR-014, the README section and [docs/AUTOMATION_VALIDATION.md](docs/AUTOMATION_VALIDATION.md).
+`AutomationService` (`services/automation_service.py`) starts a run for an approved package
+(`application_submissions` row, background task), builds applicant facts from the approved
+package only (tailored resume, profile, settings, package answers usable only if reviewed),
+and calls Agent 10 (`agents/agent_10_application_agent.py`) with a `DbRecorder` for logs,
+checkpoints and screenshots. Agent 10 uses `automation/`: `BrowserManager` and
+`SessionRegistry` (browser lifecycle, live review sessions), `dom.py` (in-page extraction),
+`form_engine.py` (fill, upload, validate), `field_matcher.py` (concepts and option choice),
+`checkpoints.py`, `recovery.py` (error kinds, retries) and `platforms/` (adapters). Submits
+happen only via `confirm_submit` + `finish_submit`. Startup marks interrupted runs failed;
+a 5-minute job closes idle forms; the daily maintenance prunes old automation logs.
+Settings: `AUTOMATION_ENABLED`, `AUTOMATION_HEADLESS`, `AUTOMATION_BROWSER_PATH`,
+`AUTOMATION_MAX_SESSIONS` (2), `AUTOMATION_SESSION_IDLE_MINUTES` (30),
+`AUTOMATION_MAX_ATTEMPTS` (2), timeouts.
+
 ## 9. Testing status
 
 - **Backend:**
-  - 473 tests pass (unit, plus integration on real Postgres). The 3 live tests are deselected by default.
+  - 540 tests pass (unit, integration on real Postgres, and 14 browser tests driving real Chromium against mock Greenhouse/Lever/Ashby pages). The 3 live tests are deselected by default.
   - CI fails on any skip; warnings are errors.
-- **Frontend:** 57 Vitest tests.
+- **Frontend:** 65 Vitest tests.
 - **CI** (`.github/workflows/ci.yml`, on every push):
-  - backend: pip check, ruff (incl. security rules), pip-audit, format, mypy strict, pytest on Postgres 19, smoke script against the real server (now including a filtering/scoring run, a package generate/download/review/approve, package delete rules and the storage endpoints)
+  - backend: pip check, Chromium install, ruff (incl. security rules), pip-audit, format, mypy strict, pytest on Postgres 19 (incl. browser tests), smoke script against the real server (now including a filtering/scoring run, a package generate/download/review/approve, package delete rules, the storage endpoints and the automation endpoints)
   - frontend: npm audit, typecheck, lint, test, build
 - **Weekly:** `live-connectors.yml`.
-- **No empty test placeholders remain.** The Phase 1 stubs were either implemented (`test_rule_filtering.py`, `test_scoring.py`, `test_api.py`, `test_pipeline.py`) or removed (`test_resume_parser.py`, covered by `test_parsing.py`; `test_form_engine.py`, `tests/e2e/test_apply_flow.py` and `frontend/e2e/dashboard.spec.ts`, which Phases 7 and 10 will create for real). Playwright e2e is not run in CI.
+- **No empty test placeholders remain.** The Phase 1 stubs were either implemented (`test_rule_filtering.py`, `test_scoring.py`, `test_api.py`, `test_pipeline.py`) or removed (`test_resume_parser.py`, covered by `test_parsing.py`; `tests/e2e/test_apply_flow.py` and `frontend/e2e/dashboard.spec.ts`; Phase 8 added `tests/browser/test_form_engine.py` for real). Browser tests (Playwright, real Chromium, mock ATS pages) run in CI; a frontend-through-backend Playwright e2e is Phase 10. Real ATS forms are checked by hand with `scripts/validate_automation.py` (review mode).
 
 ## 10. Technical debt
 
-- `Settings.app_version` is `0.7.0`; nothing bumps it automatically.
+- `Settings.app_version` is `0.8.0`; nothing bumps it automatically.
+- An open review form lives in process memory: a restart or the idle timeout closes it, and the user retries (the checkpoint and saved edits make that quick).
+- Platform adapters encode observed behaviour (Greenhouse embed URL, Lever resume parsing and location suggestions); a platform redesign may need an adapter update. The engine itself is selector-free.
 - Reparsing a resume does not rebuild the profile or rescore jobs automatically (each is one action).
 - The orphan sweep lists every stored file and referenced path: fine for a personal store, not for a very large one.
 - Package generation is a background task: like the others it is lost on restart (the package is then marked failed and can be regenerated).
@@ -256,24 +287,26 @@ settings `PACKAGE_RETENTION_DAYS` (90) and `ORPHAN_GRACE_HOURS` (24).
 - Sponsorship detection is phrase-based; unusual wording can slip through (the job is then kept).
 - Cover letters and the “why this company” answer are templates over facts unless Claude is used; they are flagged for personalisation.
 - Per-skill experience years count whole roles whose text describes using the skill; a skill used in part of a role is over-counted, so such answers say "about" and are flagged when any counted role only names the skill.
-- No dashboard, applications or activity UI yet.
+- No dashboard or activity UI yet.
+- **Automation:** approval mode only. CAPTCHAs need a visible browser (`AUTOMATION_HEADLESS=false`). Location autocompletes depend on the platforms' third-party lookups. Attaching a file uploads it to the ATS before submit (Greenhouse, Ashby). Checkbox groups and education "School" lists with no exact match are left for the user. Only Greenhouse, Lever and Ashby.
 
 ## 12. Deferred functionality
 
 | Item | Where it goes |
 |---|---|
-| Learning/insights (`learning/`) from outcomes | Phase 8 |
+| Learning/insights (`learning/`) from outcomes | After autonomous mode |
 | Claude Code commands to score a shortlist under the Pro plan (via the API) | Phase 7 or 8 |
-| Agent 10 + `automation/`: Playwright form filling for approved packages, checkpoints, approval then autonomous mode, daily cap | Next phase |
+| Autonomous mode: submit without review above a score threshold, daily cap (`settings.auto_apply_threshold`, `daily_application_cap`), only after approval mode is validated | Next |
 | Claude Code commands for tailoring/letters under the Pro plan (via the API) | With Agent 10 or Phase 8 |
-| Dashboard, applications, activity pages | Phase 8 |
+| Dashboard, activity pages | Next |
 | Dockerfiles, full compose, deploy docs, Supabase setup doc | Phase 9 |
 | Playwright e2e in CI, pipeline/integration placeholders | Phase 10 (plus each phase's own tests) |
 | Workday connector | After Phase 7; see ADR-008 |
 
 ## 13. Next recommended phases
 
-1. **Browser automation (Agent 10):** fill Greenhouse/Lever/Ashby application forms from an **approved** package (resume file, cover letter, answers), stop for anything unanswered, record checkpoints, and submit only on explicit confirmation in approval mode.
-2. **Phase 8:** dashboard, applications, activity pages; learning from outcomes.
+1. **Use approval mode for real** on a handful of applications (headed browser for CAPTCHAs) and record what the review screen still asks for; tune the matcher from that.
+2. **Autonomous mode** (only after 1): threshold, daily cap, stop on anything missing or a CAPTCHA, the same checkpoints; a new ADR superseding the approval-only rule, and a migration relaxing `ck_application_submissions_mode`.
+3. **Dashboard and insights:** dashboard, activity pages, learning from outcomes.
 3. **Phase 9:** containers and the deployment story (still personal use).
 4. **Phase 10:** end-to-end tests.
