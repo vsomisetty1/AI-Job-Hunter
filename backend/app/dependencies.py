@@ -22,9 +22,11 @@ from app.scheduler.scheduler import SchedulerService
 from app.services.company_service import CompanyService
 from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
+from app.services.pipeline_service import JobPipeline
 from app.services.profile_service import ProfileService
 from app.services.resume_processing import ResumeProcessor
 from app.services.resume_service import ResumeService
+from app.services.scoring_service import ScoringService
 from app.services.settings_service import SettingsService
 
 
@@ -96,6 +98,19 @@ def get_discovery(request: Request) -> DiscoveryService:
 
 ConnectorsDep = Annotated[dict[str, Connector], Depends(get_connectors)]
 DiscoveryDep = Annotated[DiscoveryService, Depends(get_discovery)]
+
+
+# ------------------------------------------------------------ Phase 6 services
+def get_pipeline(request: Request) -> JobPipeline:
+    return cast(JobPipeline, request.app.state.pipeline)
+
+
+def get_scoring(request: Request) -> ScoringService:
+    return cast(ScoringService, request.app.state.scoring)
+
+
+PipelineDep = Annotated[JobPipeline, Depends(get_pipeline)]
+ScoringDep = Annotated[ScoringService, Depends(get_scoring)]
 
 
 def get_company_service(db: DbSession, connectors: ConnectorsDep) -> CompanyService:

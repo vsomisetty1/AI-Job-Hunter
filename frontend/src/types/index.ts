@@ -261,6 +261,11 @@ export interface JobSummary {
   posted_at: string | null;
   first_seen_at: string;
   last_seen_at: string;
+  /** Effective score for the active profile: Claude when current, else rules. */
+  score: number | null;
+  score_method: ScoringMethod | null;
+  filter_reason: string | null;
+  duplicate_of: string | null;
 }
 
 export interface JobDetail extends JobSummary {
@@ -271,6 +276,10 @@ export interface JobDetail extends JobSummary {
   dedup_key: string;
   expired_at: string | null;
   updated_at: string;
+  filter_result: FilterResult | null;
+  filtered_at: string | null;
+  /** Rule-based score first, then Claude's (if any). */
+  scores: JobScore[];
 }
 
 export interface Page<T> {
@@ -287,7 +296,9 @@ export interface JobSearch {
   remote_type?: RemoteType | "";
   status?: JobStatus | "";
   include_expired?: boolean;
-  sort?: "newest" | "posted" | "title" | "company";
+  filter_state?: FilterState;
+  min_score?: number;
+  sort?: JobSort;
   limit?: number;
   offset?: number;
 }
@@ -387,3 +398,112 @@ export interface SourceHealth {
     error: string | null;
   } | null;
 }
+
+// ------------------------------------------------- Phase 6: filtering & scoring
+export type ScoringMethod = "rules" | "claude";
+export type FilterState = "all" | "passed" | "rejected" | "pending";
+export type JobSort = "score" | "newest" | "posted" | "title" | "company";
+export type EmploymentType = "full_time" | "part_time" | "contract" | "temporary" | "internship";
+export type RemotePreference = "remote_only" | "hybrid" | "onsite" | "any";
+
+export interface FilterCheck {
+  rule: string;
+  passed: boolean;
+  reason: string;
+}
+
+export interface FilterResult {
+  passed: boolean;
+  version: string;
+  checks: FilterCheck[];
+}
+
+export interface ScoreComponent {
+  score: number | null;
+  summary: string;
+  detail: Record<string, unknown>;
+}
+
+export interface JobScore {
+  id: string;
+  job_id: string;
+  profile_id: string;
+  scoring_method: ScoringMethod;
+  overall_score: number;
+  skills_score: number | null;
+  seniority_score: number | null;
+  location_score: number | null;
+  relevance_score: number | null;
+  salary_score: number | null;
+  interview_probability: number | null;
+  growth_score: number | null;
+  company_score: number | null;
+  rationale: string | null;
+  matched_skills: string[];
+  missing_skills: string[];
+  /** rules: {version, overall, confidence, weights, components}; claude: {strengths, concerns, ...} */
+  breakdown: {
+    confidence?: number;
+    weights?: Record<string, number>;
+    components?: Record<string, ScoreComponent>;
+    strengths?: string[];
+    concerns?: string[];
+    [key: string]: unknown;
+  };
+  model: string | null;
+  prompt_version: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  created_at: string;
+  updated_at: string;
+  is_current: boolean;
+}
+
+export interface ScoringSummary {
+  profile_id: string | null;
+  jobs_active: number;
+  jobs_unfiltered: number;
+  jobs_passed: number;
+  jobs_rejected: number;
+  jobs_duplicate: number;
+  jobs_scored: number;
+  jobs_claude_scored: number;
+  claude_available: boolean;
+  claude_enabled: boolean;
+  claude_calls_today: number;
+  claude_daily_limit: number;
+  last_run_at: string | null;
+  last_run_status: string | null;
+  task_running: boolean;
+}
+
+export interface ScoringStarted {
+  task_id: string;
+  status: string;
+  detail: string;
+}
+
+export interface Settings {
+  preferred_locations: string[];
+  remote_preference: RemotePreference;
+  job_types: EmploymentType[];
+  salary_min: number | null;
+  salary_target: number | null;
+  salary_currency: string;
+  work_authorization: string | null;
+  visa_status: string | null;
+  requires_sponsorship: boolean;
+  excluded_companies: string[];
+  excluded_keywords: string[];
+  application_mode: "APPROVAL_MODE" | "AUTONOMOUS_MODE";
+  auto_apply_threshold: number;
+  daily_application_cap: number;
+  discovery_enabled: boolean;
+  claude_scoring_enabled: boolean;
+  claude_scoring_min_score: number;
+  extra: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SettingsUpdate = Partial<Omit<Settings, "created_at" | "updated_at">>;

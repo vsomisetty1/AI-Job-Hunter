@@ -1,7 +1,7 @@
 -- =====================================================================
 -- AI Job Hunter - PostgreSQL schema (requires PostgreSQL 15+)
 --
--- Reference copy of the schema at Alembic head (migrations 0001-0003).
+-- Reference copy of the schema at Alembic head (migrations 0001-0004).
 -- Migrations execute frozen SQL files in migrations/sql/; an integration
 -- test checks that this file and the migrated database have the same
 -- catalog (columns, constraints, indexes, triggers).
@@ -174,6 +174,13 @@ CREATE TABLE jobs (
     content_hash      text,
     status            text NOT NULL DEFAULT 'new',
     filter_reason     text,
+    -- Rule-filter decision: {"passed", "version", "checks": [{"rule", "passed", "reason"}]}
+    filter_result     jsonb,
+    -- Hash of rule version + preferences + the job fields the rules read.
+    filter_hash       text,
+    filtered_at       timestamptz,
+    -- The same posting already stored from another board (earliest kept).
+    duplicate_of      uuid,
     posted_at         timestamptz,
     first_seen_at     timestamptz NOT NULL DEFAULT now(),
     last_seen_at      timestamptz NOT NULL DEFAULT now(),
@@ -187,6 +194,8 @@ CREATE TABLE jobs (
     -- by deleting a company row.
     CONSTRAINT fk_jobs_company_id
         FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_jobs_duplicate_of
+        FOREIGN KEY (duplicate_of) REFERENCES jobs(id) ON DELETE SET NULL,
     CONSTRAINT ck_jobs_external_id CHECK (btrim(external_id) <> ''),
     CONSTRAINT ck_jobs_title CHECK (btrim(title) <> ''),
     CONSTRAINT ck_jobs_remote_type
@@ -207,6 +216,14 @@ CREATE TABLE jobs (
     CONSTRAINT ck_jobs_requirements_json CHECK (jsonb_typeof(requirements) = 'array'),
     CONSTRAINT ck_jobs_raw_json CHECK (raw IS NULL OR jsonb_typeof(raw) = 'object'),
     CONSTRAINT ck_jobs_seen_order CHECK (last_seen_at >= first_seen_at),
+    CONSTRAINT ck_jobs_not_own_duplicate CHECK (duplicate_of IS NULL OR duplicate_of <> id),
+    CONSTRAINT ck_jobs_filter_result_json
+        CHECK (filter_result IS NULL OR jsonb_typeof(filter_result) = 'object'),
+    CONSTRAINT ck_jobs_filter_hash
+        CHECK (filter_hash IS NULL OR filter_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_jobs_filtered_consistent
+        CHECK ((filter_result IS NULL) = (filtered_at IS NULL)
+               AND (filter_hash IS NULL) = (filtered_at IS NULL)),
     CONSTRAINT uq_jobs_company_external UNIQUE (company_id, external_id),
     CONSTRAINT uq_jobs_url UNIQUE (url)
 );
@@ -216,6 +233,7 @@ CREATE INDEX ix_jobs_dedup_key ON jobs (dedup_key);
 -- Expiry sweep: jobs of a company not seen in the latest crawl.
 CREATE INDEX ix_jobs_company_last_seen ON jobs (company_id, last_seen_at);
 CREATE INDEX ix_jobs_posted_at ON jobs (posted_at DESC NULLS LAST);
+CREATE INDEX ix_jobs_duplicate_of ON jobs (duplicate_of) WHERE duplicate_of IS NOT NULL;
 CREATE TRIGGER trg_jobs_updated
     BEFORE UPDATE ON jobs
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -272,43 +290,72 @@ CREATE TRIGGER trg_resume_versions_updated
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------
--- job_scores: Claude scoring output (cached per prompt version).
--- All scores are integer percentages 0-100.
+-- job_scores: one current score per job + profile + scoring method.
+--   rules:  deterministic scorer (always available, no tokens)
+--   claude: optional Claude scoring of a shortlist
+-- All scores are integer percentages 0-100. Claude-only fields
+-- (interview_probability, growth_score, company_score) are NULL for rules.
 -- ---------------------------------------------------------------------
 CREATE TABLE job_scores (
     id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id                uuid NOT NULL,
     profile_id            uuid NOT NULL,
+    scoring_method        text NOT NULL DEFAULT 'rules',
     overall_score         smallint NOT NULL,
-    interview_probability smallint NOT NULL,
-    salary_score          smallint NOT NULL,
-    growth_score          smallint NOT NULL,
-    company_score         smallint NOT NULL,
+    skills_score          smallint,
+    seniority_score       smallint,
+    location_score        smallint,
+    relevance_score       smallint,
+    salary_score          smallint,
+    interview_probability smallint,
+    growth_score          smallint,
+    company_score         smallint,
     rationale             text,
     matched_skills        jsonb NOT NULL DEFAULT '[]'::jsonb,
     missing_skills        jsonb NOT NULL DEFAULT '[]'::jsonb,
-    model                 text NOT NULL,
-    prompt_version        text NOT NULL,
+    -- Per-component scores, weights and the evidence behind them.
+    breakdown             jsonb NOT NULL DEFAULT '{}'::jsonb,
+    -- Hash of everything the score was computed from (skip unchanged reruns).
+    input_hash            text,
+    model                 text,
+    prompt_version        text,
     input_tokens          integer NOT NULL DEFAULT 0,
     output_tokens         integer NOT NULL DEFAULT 0,
     created_at            timestamptz NOT NULL DEFAULT now(),
+    updated_at            timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT fk_job_scores_job_id
         FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
     CONSTRAINT fk_job_scores_profile_id
         FOREIGN KEY (profile_id) REFERENCES candidate_profiles(id) ON DELETE CASCADE,
+    CONSTRAINT ck_job_scores_method CHECK (scoring_method IN ('rules', 'claude')),
     CONSTRAINT ck_job_scores_overall CHECK (overall_score BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_interview CHECK (interview_probability BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_salary CHECK (salary_score BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_growth CHECK (growth_score BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_company CHECK (company_score BETWEEN 0 AND 100),
+    CONSTRAINT ck_job_scores_components CHECK (
+        (skills_score IS NULL OR skills_score BETWEEN 0 AND 100)
+        AND (seniority_score IS NULL OR seniority_score BETWEEN 0 AND 100)
+        AND (location_score IS NULL OR location_score BETWEEN 0 AND 100)
+        AND (relevance_score IS NULL OR relevance_score BETWEEN 0 AND 100)),
+    CONSTRAINT ck_job_scores_claude_fields
+        CHECK (scoring_method <> 'claude' OR (model IS NOT NULL AND prompt_version IS NOT NULL)),
+    CONSTRAINT ck_job_scores_rules_no_tokens
+        CHECK (scoring_method <> 'rules' OR (input_tokens = 0 AND output_tokens = 0)),
     CONSTRAINT ck_job_scores_tokens CHECK (input_tokens >= 0 AND output_tokens >= 0),
     CONSTRAINT ck_job_scores_skills_json
         CHECK (jsonb_typeof(matched_skills) = 'array' AND jsonb_typeof(missing_skills) = 'array'),
-    CONSTRAINT uq_job_scores_job_profile_prompt UNIQUE (job_id, profile_id, prompt_version),
+    CONSTRAINT ck_job_scores_breakdown_json CHECK (jsonb_typeof(breakdown) = 'object'),
+    CONSTRAINT ck_job_scores_input_hash
+        CHECK (input_hash IS NULL OR input_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT uq_job_scores_job_profile_method UNIQUE (job_id, profile_id, scoring_method),
     -- Target for the composite FK from applications (same-job guarantee).
     CONSTRAINT uq_job_scores_id_job UNIQUE (id, job_id)
 );
 CREATE INDEX ix_job_scores_profile_overall ON job_scores (profile_id, overall_score DESC);
+CREATE TRIGGER trg_job_scores_updated
+    BEFORE UPDATE ON job_scores
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------
 -- cover_letters: one per job per profile (regeneration overwrites)
@@ -537,6 +584,10 @@ CREATE TABLE settings (
     auto_apply_threshold  smallint NOT NULL DEFAULT 80,
     daily_application_cap smallint NOT NULL DEFAULT 10,
     discovery_enabled     boolean NOT NULL DEFAULT true,
+    -- Claude scoring runs only when enabled here AND an API key is set,
+    -- and only for jobs whose rule-based score reaches the minimum.
+    claude_scoring_enabled   boolean NOT NULL DEFAULT false,
+    claude_scoring_min_score smallint NOT NULL DEFAULT 60,
     -- Free-form extras (default answers, notice period, etc.)
     extra                 jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at            timestamptz NOT NULL DEFAULT now(),
@@ -548,6 +599,7 @@ CREATE TABLE settings (
         CHECK (application_mode IN ('APPROVAL_MODE', 'AUTONOMOUS_MODE')),
     CONSTRAINT ck_settings_threshold CHECK (auto_apply_threshold BETWEEN 0 AND 100),
     CONSTRAINT ck_settings_cap CHECK (daily_application_cap BETWEEN 0 AND 200),
+    CONSTRAINT ck_settings_claude_min_score CHECK (claude_scoring_min_score BETWEEN 0 AND 100),
     CONSTRAINT ck_settings_currency CHECK (salary_currency ~ '^[A-Z]{3}$'),
     CONSTRAINT ck_settings_salary
         CHECK ((salary_min IS NULL OR salary_min >= 0) AND (salary_target IS NULL OR salary_target >= 0)),

@@ -46,6 +46,21 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   `tests/integration/test_discovery.py` the whole pipeline on Postgres (insert, unchanged,
   update, expire, revive, incomplete responses, cross-board and URL duplicates, failure
   isolation, one run at a time, scheduled incremental refresh, the API).
+- Phase 6 (filtering and scoring): `tests/unit/test_rule_filtering.py` (every Agent 4
+  rule, location aliases and US states, sponsorship phrases, fingerprints) and
+  `tests/unit/test_scoring.py` (every Agent 5 component, weighting, fingerprints, the
+  Claude rate limiter, cache hits bypassing pacing, clamping);
+  `tests/integration/test_pipeline.py` (filter decisions and status moves, cross-board
+  duplicate links, rule scores with skip-unchanged, Claude shortlist scoring with usage,
+  caching, staleness, per-run and daily caps, failure isolation, the full pipeline from a
+  mocked board, the scheduled cycle) and `tests/integration/test_api.py` (score sorting
+  and filter controls, job detail breakdown, effective Claude vs. rule score, scoring
+  run/summary endpoints, settings and profile edits re-scoring in the background).
+  `tests/fixtures/jobs.py` seeds companies, jobs, profiles and settings. Migration 0004 is
+  covered both ways in `test_migrations.py`. The smoke script also runs a scoring pass.
+- Background re-scoring on settings/profile changes is off in the default test app
+  (`rescore_on_change=False`, like the scheduler), because the rolled-back `db_app`
+  shares one connection; the tests that cover it use the live-pool app.
 - `tests/live/` (marker `live`, deselected by default) checks the connectors against the
   real platforms: `pytest -m live tests/live`. For the full app, see
   [VALIDATION.md](VALIDATION.md).

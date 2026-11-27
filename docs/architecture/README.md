@@ -16,3 +16,4 @@ ADR that supersedes the old one; don't rewrite history.
 | [008](ADR-008.md) | Public ATS APIs behind a connector interface; Workday deferred |
 | [009](ADR-009.md) | Job identity, deduplication and lifecycle |
 | [010](ADR-010.md) | Testing and CI strategy |
+| [011](ADR-011.md) | Rule-based filtering and scoring, with optional Claude on a shortlist (Phase 6) |

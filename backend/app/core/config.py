@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Job Hunter API"
-    app_version: str = "0.4.0"
+    app_version: str = "0.6.0"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     log_json: bool | None = None  # default: JSON in production only
@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     claude_timeout_seconds: float = Field(default=120.0, gt=0)
     # Server-side refusal fallback (routes a declined request to another model).
     claude_refusal_fallback: bool = True
+    # Job scoring with Claude (opt-in in settings; only with an API key). Limits
+    # keep cost predictable: a cap per run, a rolling 24-hour cap, and pacing.
+    claude_effort_scoring: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    claude_scoring_max_per_run: int = Field(default=25, ge=0, le=500)
+    claude_scoring_max_per_day: int = Field(default=100, ge=0, le=5000)
+    claude_scoring_per_minute: float = Field(default=10.0, gt=0, le=600)
     llm_cache_ttl_days: int = Field(default=30, ge=0)  # 0 = never expires
     # agent_runs older than this are deleted by the daily maintenance job.
     agent_run_retention_days: int = Field(default=180, ge=1)
@@ -104,6 +110,9 @@ class Settings(BaseSettings):
     browser_state_dir: str = "./browser_state"
 
     scheduler_enabled: bool = True
+    # Re-filter and re-score stored jobs in the background when the settings
+    # or the profile change (otherwise only scheduled runs and "Re-score" do).
+    rescore_on_change: bool = True
     discovery_interval_minutes: int = Field(default=360, ge=5)
     # Job boards crawled in parallel, and HTTP behaviour towards them.
     discovery_concurrency: int = Field(default=4, ge=1, le=16)

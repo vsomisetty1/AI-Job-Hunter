@@ -47,6 +47,9 @@ def make_app(tmp_path):
         overrides.setdefault("database_url", "postgresql://u:p@127.0.0.1:1/unused")
         overrides.setdefault("app_env", "test")
         overrides.setdefault("scheduler_enabled", False)
+        # Background re-scoring would share the single test connection with the
+        # next request; tests that cover it turn it on with the live-pool app.
+        overrides.setdefault("rescore_on_change", False)
         settings = Settings(_env_file=None, **overrides)
         app = create_app(settings)
         app.dependency_overrides[get_settings] = lambda: settings

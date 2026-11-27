@@ -138,6 +138,7 @@ def test_prompt_registry_and_rendering():
         "profile_inference",
         "career_analysis",
         "skill_extraction",
+        "job_scoring",
     }
     for p in PROMPTS.values():
         assert p.version and p.max_tokens > 0

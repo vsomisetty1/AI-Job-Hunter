@@ -23,7 +23,7 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | 3 | Backend foundation | Done |
 | 4 | Resume intelligence (Agents 0, 1; resume versioning) | Done |
 | 5 | Job discovery (Agents 2, 3; Agent 4 filtering moves to Phase 6) | Done |
-| 6 | Rule filtering + scoring + learning (Agents 4, 5) | Pending |
+| 6 | Rule filtering + scoring (Agents 4, 5; optional Claude scoring; learning moves to Phase 8) | Done |
 | 7 | Application packages + automation (Agents 6, 7, 8, 9, 10) | Pending |
 | 8 | Frontend | Pending |
 | 9 | Deployment | Pending |
@@ -110,6 +110,46 @@ API: `/api/v1/jobs` (search, `/stats`, `/{id}`, `/{id}/raw`), `/api/v1/companies
 (+ `/directory`, `/suggested`), `/api/v1/discovery/runs`, `/api/v1/discovery/health`.
 
 **Check it against the real job boards:** [docs/VALIDATION.md](docs/VALIDATION.md).
+
+## Filtering and scoring (Phase 6)
+
+Every discovery run continues as one pipeline (`services/pipeline_service.py`):
+**Discovery → Deduplication → Filtering → Scoring**, each stage recorded in `agent_runs`.
+
+1. **Set preferences** on the **Settings** page: preferred locations, workplace
+   (any / remote only / hybrid / on-site), employment types, minimum and target salary,
+   visa sponsorship, excluded companies and keywords, and (optionally) Claude scoring.
+   Saving re-filters and re-scores your jobs in the background (`RESCORE_ON_CHANGE`).
+2. **Browse matches** on the **Jobs** page: sorted by score, showing jobs that passed
+   your filters by default ("Show": matches / filtered out / not filtered yet / all), with
+   a minimum-score filter and a **Re-score** button. A job's page explains its score
+   component by component and lists every filter check.
+
+How it works:
+
+- **Deduplication** (`FilteringService.mark_duplicates`): after the per-board checks of
+  Phase 5, a sweep links postings that another board already supplied
+  (`jobs.duplicate_of`), including ones inserted by concurrent crawls.
+- **Agent 4, rule filter** (`agents/agent_4_rule_filtering.py`, pure): duplicate,
+  company, keywords, location (aliases such as NYC/SF/US and US states), workplace,
+  employment type, salary and sponsorship rules. Missing information never rejects a job.
+  The decision (`filter_result`, `filter_reason`) is stored on the job; rejected jobs get
+  status `filtered`. Shortlisted, skipped, applied and expired jobs are never re-filtered.
+- **Agent 5, rule-based scoring** (`agents/agent_5_job_scoring.py`, pure, no tokens):
+  skills (35), title relevance (25), seniority (15), location (15), salary (10). Components
+  that cannot be judged are left out and the weights renormalised. Matched and missing
+  skills and a per-component breakdown are stored in `job_scores`.
+- **Claude scoring (optional)**: enable it in Settings with `ANTHROPIC_API_KEY` set. Only
+  jobs whose rule score reaches your minimum are sent, best first, capped by
+  `CLAUDE_SCORING_MAX_PER_RUN` (25), `CLAUDE_SCORING_MAX_PER_DAY` (100 real calls per
+  rolling 24 h) and paced at `CLAUDE_SCORING_PER_MINUTE` (10). Answers are cached; a
+  Claude score counts only while the inputs it saw are unchanged.
+- Re-runs are cheap: filter decisions and scores store a hash of their inputs, so
+  unchanged jobs are skipped.
+
+API: `/api/v1/jobs?sort=score&filter_state=passed&min_score=60`, `/api/v1/jobs/{id}`
+(with `filter_result` and `scores`), `POST /api/v1/scoring/runs`,
+`GET /api/v1/scoring/summary`.
 
 ## Run it locally
 

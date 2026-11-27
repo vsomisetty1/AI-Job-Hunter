@@ -17,7 +17,8 @@ from app.models.discovery_run import DiscoveryRun
 from app.models.llm_cache_entry import LLMCacheEntry
 from app.repositories.settings_repository import SettingsRepository
 from app.scheduler.scheduler import SchedulerService
-from app.services.discovery_service import DiscoveryInProgressError, DiscoveryService
+from app.services.discovery_service import DiscoveryInProgressError
+from app.services.pipeline_service import JobPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +79,9 @@ async def run_maintenance(settings: Settings) -> dict[str, int]:
     return result
 
 
-async def run_discovery_cycle(discovery: DiscoveryService) -> dict[str, object]:
-    """Scheduled, incremental refresh: only companies whose last crawl is due."""
+async def run_discovery_cycle(pipeline: JobPipeline) -> dict[str, object]:
+    """Scheduled, incremental refresh: only companies whose last crawl is due, then
+    deduplication, filtering and scoring of what was found."""
     async with session_scope() as session:
         settings = await SettingsRepository(session).get_singleton()
         enabled = settings.discovery_enabled
@@ -87,24 +89,22 @@ async def run_discovery_cycle(discovery: DiscoveryService) -> dict[str, object]:
         logger.info("discovery skipped: disabled in settings")
         return {"skipped": True, "reason": "discovery_disabled"}
     try:
-        summary = await discovery.run("scheduled", only_due=True)
+        summary = await pipeline.run("scheduled", only_due=True)
     except DiscoveryInProgressError:
         logger.info("discovery skipped: a run is already in progress")
         return {"skipped": True, "reason": "in_progress"}
     return {"skipped": False} | {k: v for k, v in summary.items() if k != "details"}
 
 
-def register_jobs(
-    scheduler: SchedulerService, settings: Settings, discovery: DiscoveryService
-) -> None:
+def register_jobs(scheduler: SchedulerService, settings: Settings, pipeline: JobPipeline) -> None:
     async def discover() -> dict[str, object]:
-        return await run_discovery_cycle(discovery)
+        return await run_discovery_cycle(pipeline)
 
     scheduler.add_interval_job(
         DISCOVERY_JOB_ID,
         discover,
         minutes=settings.discovery_interval_minutes,
-        name="Discover jobs from tracked company boards",
+        name="Discover, deduplicate, filter and score jobs",
     )
 
     async def maintenance() -> dict[str, int]:

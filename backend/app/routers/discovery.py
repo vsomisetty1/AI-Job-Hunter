@@ -5,7 +5,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
 
-from app.dependencies import DiscoveryDep, TaskManagerDep
+from app.dependencies import DiscoveryDep, PipelineDep, TaskManagerDep
 from app.schemas.common import ERROR_RESPONSES, ErrorResponse, Page, PaginationParams
 from app.schemas.discovery import (
     DiscoveryRunDetail,
@@ -23,17 +23,20 @@ DISCOVERY_TASK_KEY = "discovery"
     "/runs",
     response_model=DiscoveryStarted,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Start a discovery run now (manual trigger)",
+    summary="Start a discovery run now; found jobs are then deduplicated, filtered and scored",
     responses={409: {"model": ErrorResponse, "description": "A run is already in progress"}},
 )
 async def start_run(
-    discovery: DiscoveryDep, tasks: TaskManagerDep, body: StartDiscoveryRequest | None = None
+    discovery: DiscoveryDep,
+    pipeline: PipelineDep,
+    tasks: TaskManagerDep,
+    body: StartDiscoveryRequest | None = None,
 ) -> DiscoveryStarted:
     body = body or StartDiscoveryRequest()
     run_id = await discovery.start("manual")  # 409 while another run is going
     task = tasks.submit(
         "job-discovery",
-        lambda: discovery.execute(run_id, company_ids=body.company_ids, only_due=body.only_due),
+        lambda: pipeline.execute(run_id, company_ids=body.company_ids, only_due=body.only_due),
         dedupe_key=DISCOVERY_TASK_KEY,
     )
     return DiscoveryStarted(

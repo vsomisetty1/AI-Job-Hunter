@@ -1,6 +1,16 @@
 import { vi } from "vitest";
 
-import type { CandidateProfile, Company, DiscoveryRunDetail, JobDetail, JobSummary, ParsedResume } from "@/types";
+import type {
+  CandidateProfile,
+  Company,
+  DiscoveryRunDetail,
+  JobDetail,
+  JobScore,
+  JobSummary,
+  ParsedResume,
+  ScoringSummary,
+  Settings,
+} from "@/types";
 
 export function parsedResume(overrides: Partial<ParsedResume> = {}): ParsedResume {
   return {
@@ -120,6 +130,93 @@ export function jobSummary(overrides: Partial<JobSummary> = {}): JobSummary {
     posted_at: "2026-11-20T10:00:00Z",
     first_seen_at: "2026-11-26T10:00:00Z",
     last_seen_at: "2026-11-27T10:00:00Z",
+    score: 82,
+    score_method: "rules",
+    filter_reason: null,
+    duplicate_of: null,
+    ...overrides,
+  };
+}
+
+export function jobScore(overrides: Partial<JobScore> = {}): JobScore {
+  return {
+    id: "s1",
+    job_id: "j1",
+    profile_id: "p1",
+    scoring_method: "rules",
+    overall_score: 82,
+    skills_score: 78,
+    seniority_score: 100,
+    location_score: 100,
+    relevance_score: 90,
+    salary_score: null,
+    interview_probability: null,
+    growth_score: null,
+    company_score: null,
+    rationale: "Skills: 3 of 4 skills match.",
+    matched_skills: ["Python", "PostgreSQL"],
+    missing_skills: ["Kubernetes"],
+    breakdown: {
+      confidence: 0.9,
+      components: {
+        skills: { score: 78, summary: "3 of 4 skills match; missing Kubernetes", detail: {} },
+        salary: { score: null, summary: "Salary not listed", detail: {} },
+      },
+    },
+    model: null,
+    prompt_version: null,
+    input_tokens: 0,
+    output_tokens: 0,
+    created_at: "2026-11-27T10:00:00Z",
+    updated_at: "2026-11-27T10:00:00Z",
+    is_current: true,
+    ...overrides,
+  };
+}
+
+export function scoringSummary(overrides: Partial<ScoringSummary> = {}): ScoringSummary {
+  return {
+    profile_id: "p1",
+    jobs_active: 3,
+    jobs_unfiltered: 0,
+    jobs_passed: 2,
+    jobs_rejected: 1,
+    jobs_duplicate: 0,
+    jobs_scored: 2,
+    jobs_claude_scored: 0,
+    claude_available: false,
+    claude_enabled: false,
+    claude_calls_today: 0,
+    claude_daily_limit: 100,
+    last_run_at: null,
+    last_run_status: null,
+    task_running: false,
+    ...overrides,
+  };
+}
+
+export function settings(overrides: Partial<Settings> = {}): Settings {
+  return {
+    preferred_locations: ["San Francisco"],
+    remote_preference: "any",
+    job_types: [],
+    salary_min: null,
+    salary_target: null,
+    salary_currency: "USD",
+    work_authorization: null,
+    visa_status: null,
+    requires_sponsorship: false,
+    excluded_companies: [],
+    excluded_keywords: [],
+    application_mode: "APPROVAL_MODE",
+    auto_apply_threshold: 80,
+    daily_application_cap: 10,
+    discovery_enabled: true,
+    claude_scoring_enabled: false,
+    claude_scoring_min_score: 60,
+    extra: {},
+    created_at: "2026-11-27T10:00:00Z",
+    updated_at: "2026-11-27T10:00:00Z",
     ...overrides,
   };
 }
@@ -134,6 +231,9 @@ export function jobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
     dedup_key: "a".repeat(64),
     expired_at: null,
     updated_at: "2026-11-27T10:00:00Z",
+    filter_result: null,
+    filtered_at: null,
+    scores: [],
     ...overrides,
   };
 }

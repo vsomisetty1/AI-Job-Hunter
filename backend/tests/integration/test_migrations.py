@@ -225,3 +225,45 @@ def test_0002_renumbers_versions_and_downgrade_removes_untailored(db):
     with eng.begin() as conn:  # leave no user data behind for other tests
         for table in ("candidate_profiles", "jobs", "companies"):  # FK order
             conn.execute(text(f"DELETE FROM {table}"))
+
+
+def test_0004_keeps_existing_claude_scores_and_downgrades_cleanly(db):
+    """Old rows (one per prompt version) collapse to the newest and become 'claude';
+    downgrading drops what the old schema cannot hold."""
+    eng, cfg = db
+    command.downgrade(cfg, "0003")
+    h = "a" * 64
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        j = conn.execute(
+            text("INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                 "VALUES (:c, '1', 'Eng', 'https://x.test/1', :h) RETURNING id"),
+            {"c": c, "h": h},
+        ).scalar()  # fmt: skip
+        for version, at in (("v1", "2026-01-01"), ("v2", "2026-02-01")):
+            conn.execute(
+                text("INSERT INTO job_scores (job_id, profile_id, overall_score, "
+                     "interview_probability, salary_score, growth_score, company_score, model, "
+                     "prompt_version, created_at) VALUES (:j, :p, 50, 1, 1, 1, 1, 'm', :v, :at)"),
+                {"j": j, "p": p, "v": version, "at": at},
+            )  # fmt: skip
+    command.upgrade(cfg, "head")
+    with eng.begin() as conn:
+        rows = conn.execute(text("SELECT scoring_method, prompt_version FROM job_scores")).all()
+        assert [tuple(r) for r in rows] == [("claude", "v2")]
+        conn.execute(
+            text("INSERT INTO job_scores (job_id, profile_id, overall_score) VALUES (:j, :p, 70)"),
+            {"j": j, "p": p},
+        )
+    command.downgrade(cfg, "0003")
+    with eng.connect() as conn:
+        rows = conn.execute(text("SELECT prompt_version FROM job_scores")).all()
+        assert [tuple(r) for r in rows] == [("v2",)]  # the rule-based row is gone
+    command.upgrade(cfg, "head")

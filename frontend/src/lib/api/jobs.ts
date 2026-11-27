@@ -12,6 +12,8 @@ import type {
   JobSource,
   JobSummary,
   Page,
+  ScoringStarted,
+  ScoringSummary,
   SourceHealth,
 } from "@/types";
 
@@ -55,4 +57,9 @@ export const discoveryApi = {
   runs: (limit = 20) => apiFetch<Page<DiscoveryRun>>(`/discovery/runs?limit=${limit}`),
   run: (id: string) => apiFetch<DiscoveryRunDetail>(`/discovery/runs/${id}`),
   health: (probe = false) => apiFetch<SourceHealth[]>(`/discovery/health${probe ? "?probe=true" : ""}`),
+};
+
+export const scoringApi = {
+  run: () => apiFetch<ScoringStarted>("/scoring/runs", { method: "POST" }),
+  summary: () => apiFetch<ScoringSummary>("/scoring/summary"),
 };

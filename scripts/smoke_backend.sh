@@ -108,5 +108,24 @@ done
 [ "$RUN_STATUS" = "succeeded" ] || fail "discovery run ended as $RUN_STATUS"
 echo "ok  discovery run $RUN_STATUS"
 
+# Filtering and scoring API (Phase 6).
+expect 200 GET "/api/v1/jobs?sort=score&filter_state=passed&min_score=50"
+expect 422 GET "/api/v1/jobs?min_score=101"
+expect 200 GET /api/v1/scoring/summary
+expect 422 PATCH /api/v1/settings '{"job_types": ["gig"]}'
+expect 200 PATCH /api/v1/settings '{"excluded_keywords": [], "claude_scoring_min_score": 60}'
+SCORE=$(curl -fsS -X POST "$BASE/api/v1/scoring/runs") || fail "could not start scoring"
+SCORE_TASK=$(echo "$SCORE" | python -c "import json,sys; print(json.load(sys.stdin)['task_id'])")
+for _ in $(seq 1 60); do
+  STATUS=$(curl -fsS "$BASE/api/v1/system/tasks/$SCORE_TASK" | python -c "import json,sys; print(json.load(sys.stdin)['status'])")
+  [ "$STATUS" = "succeeded" ] && break
+  [ "$STATUS" = "failed" ] && fail "scoring task failed"
+  sleep 0.5
+done
+[ "$STATUS" = "succeeded" ] || fail "scoring did not finish"
+curl -fsS "$BASE/api/v1/scoring/summary" | grep -q '"last_run_status":"succeeded"' \
+  || fail "scoring run not recorded"
+echo "ok  filtering and scoring run succeeded"
+
 grep -q "Traceback" "$LOG" && fail "traceback in server log"
 echo "smoke test passed"

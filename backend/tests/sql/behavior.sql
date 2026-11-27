@@ -123,7 +123,30 @@ BEGIN
         VALUES (j1, p, 80, 40, 70, 60, 75, 'm', 'v1') RETURNING id INTO s1;
     v := jsonb_build_object('j', j1::text, 'p', p::text);
     PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, interview_probability, salary_score, growth_score, company_score, model, prompt_version) VALUES (''{j}'', ''{p}'', 101, 1, 1, 1, 1, ''m'', ''v9'')', 'score <= 100', v);
-    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, interview_probability, salary_score, growth_score, company_score, model, prompt_version) VALUES (''{j}'', ''{p}'', 1, 1, 1, 1, 1, ''m'', ''v1'')', 'unique score per prompt version', v);
+    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, interview_probability, salary_score, growth_score, company_score, model, prompt_version) VALUES (''{j}'', ''{p}'', 1, 1, 1, 1, 1, ''m'', ''v1'')', 'one score per job+profile+method', v);
+    -- 0004: rule-based and Claude scores live side by side
+    INSERT INTO job_scores (job_id, profile_id, scoring_method, overall_score, model, prompt_version, input_tokens)
+        VALUES (j1, p, 'claude', 70, 'claude-haiku-5-5', 'job_scoring:1', 900);
+    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, scoring_method, overall_score) VALUES (''{j}'', ''{p}'', ''claude'', 1)', 'claude score needs model and prompt version', jsonb_build_object('j', j2::text, 'p', p::text));
+    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, input_tokens) VALUES (''{j}'', ''{p}'', 1, 10)', 'rule-based score has no tokens', jsonb_build_object('j', j2::text, 'p', p::text));
+    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, scoring_method, overall_score) VALUES (''{j}'', ''{p}'', ''magic'', 1)', 'scoring method enum', jsonb_build_object('j', j2::text, 'p', p::text));
+    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, skills_score) VALUES (''{j}'', ''{p}'', 1, 101)', 'component score <= 100', jsonb_build_object('j', j2::text, 'p', p::text));
+    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, breakdown) VALUES (''{j}'', ''{p}'', 1, ''[]''::jsonb)', 'breakdown must be object', jsonb_build_object('j', j2::text, 'p', p::text));
+    PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, input_hash) VALUES (''{j}'', ''{p}'', 1, ''nothex'')', 'input hash format', jsonb_build_object('j', j2::text, 'p', p::text));
+    INSERT INTO job_scores (job_id, profile_id, overall_score) VALUES (j2, p, 55);
+    UPDATE job_scores SET overall_score = 56, updated_at = now() - interval '1 day' WHERE job_id = j2;
+    PERFORM pg_temp.expect_true((SELECT updated_at = now() FROM job_scores WHERE job_id = j2), 'job_scores updated_at trigger');
+    DELETE FROM job_scores WHERE job_id = j2;
+
+    -- 0004: filter decisions and duplicate links on jobs
+    PERFORM pg_temp.expect_error('UPDATE jobs SET duplicate_of = id WHERE id = ''{j}''', 'job cannot duplicate itself', v);
+    PERFORM pg_temp.expect_error('UPDATE jobs SET filter_result = ''{}''::jsonb WHERE id = ''{j}''', 'filter result needs hash and time', v);
+    PERFORM pg_temp.expect_error('UPDATE jobs SET filter_result = ''[]''::jsonb, filter_hash = repeat(''a'', 64), filtered_at = now() WHERE id = ''{j}''', 'filter result must be object', v);
+    PERFORM pg_temp.expect_error('UPDATE jobs SET filter_result = ''{}''::jsonb, filter_hash = ''x'', filtered_at = now() WHERE id = ''{j}''', 'filter hash format', v);
+    UPDATE jobs SET duplicate_of = j1 WHERE id = j2;
+    UPDATE jobs SET filter_result = '{"passed": true}'::jsonb, filter_hash = repeat('b', 64), filtered_at = now() WHERE id = j2;
+    UPDATE jobs SET duplicate_of = NULL, filter_result = NULL, filter_hash = NULL, filtered_at = NULL WHERE id = j2;
+    PERFORM pg_temp.expect_error('UPDATE settings SET claude_scoring_min_score = 101', 'claude min score range');
     PERFORM pg_temp.expect_error('INSERT INTO job_scores (job_id, profile_id, overall_score, interview_probability, salary_score, growth_score, company_score, model, prompt_version, matched_skills) VALUES (''{j}'', ''{p}'', 1, 1, 1, 1, 1, ''m'', ''v8'', ''{}''::jsonb)', 'skills must be array', v);
 
     INSERT INTO cover_letters (job_id, profile_id, content) VALUES (j1, p, 'Dear team') RETURNING id INTO cl1;

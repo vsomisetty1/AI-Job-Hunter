@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import APIModel, ORMModel
+from app.schemas.job_score import FilterResult, JobScoreRead, ScoringMethod
 
 RemoteType = Literal["remote", "hybrid", "onsite", "unknown"]
 EmploymentType = Literal["full_time", "part_time", "contract", "temporary", "internship"]
@@ -91,6 +92,11 @@ class JobSummary(BaseModel):
     posted_at: datetime | None
     first_seen_at: datetime
     last_seen_at: datetime
+    # Effective score for the active profile: Claude when current, else rules.
+    score: int | None = None
+    score_method: ScoringMethod | None = None
+    filter_reason: str | None = None
+    duplicate_of: uuid.UUID | None = None
 
 
 class JobDetail(JobSummary):
@@ -101,6 +107,10 @@ class JobDetail(JobSummary):
     dedup_key: str
     expired_at: datetime | None
     updated_at: datetime
+    filter_result: FilterResult | None = None
+    filtered_at: datetime | None = None
+    # Current rows for the active profile: rule-based first, then Claude.
+    scores: list[JobScoreRead] = Field(default_factory=list)
 
 
 class JobSearchParams(BaseModel):
@@ -110,6 +120,10 @@ class JobSearchParams(BaseModel):
     remote_type: RemoteType | None = None
     status: JobStatus | None = None
     include_expired: bool = False
-    sort: Literal["newest", "posted", "title", "company"] = "newest"
+    # passed: kept by the rule filter; rejected: dropped (incl. duplicates);
+    # pending: not evaluated yet.
+    filter_state: Literal["all", "passed", "rejected", "pending"] = "all"
+    min_score: int | None = Field(default=None, ge=0, le=100)
+    sort: Literal["score", "newest", "posted", "title", "company"] = "newest"
     limit: int = Field(default=50, ge=1, le=200)
     offset: int = Field(default=0, ge=0)

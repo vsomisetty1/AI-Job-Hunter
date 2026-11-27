@@ -14,7 +14,10 @@ from app.documents.scanner import VirusScanner, build_scanner
 from app.llm.cache import LLMCache
 from app.llm.client import ClaudeClient
 from app.services.discovery_service import DiscoveryService
+from app.services.filtering_service import FilteringService
+from app.services.pipeline_service import JobPipeline
 from app.services.resume_processing import ResumeProcessor
+from app.services.scoring_service import ScoringService
 from app.storage import StorageBackend, build_storage
 
 
@@ -49,3 +52,13 @@ def init_services(
     app.state.http = http
     app.state.connectors = build_connectors(http)
     app.state.discovery = DiscoveryService(settings, app.state.connectors, sessionmaker)
+
+    # Phase 6: Discovery -> Deduplication -> Filtering -> Scoring.
+    app.state.filtering = FilteringService(sessionmaker)
+    app.state.scoring = ScoringService(settings, llm, sessionmaker)
+    app.state.pipeline = JobPipeline(
+        app.state.discovery, app.state.filtering, app.state.scoring, sessionmaker
+    )
+    # A new or rebuilt profile changes every score.
+    if settings.rescore_on_change:
+        app.state.processor.after_profile = app.state.pipeline.rescore

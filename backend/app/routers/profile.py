@@ -4,7 +4,15 @@ from typing import Any
 
 from fastapi import APIRouter, status
 
-from app.dependencies import DbSession, ProcessorDep, ProfileServiceDep, TaskManagerDep
+from app.dependencies import (
+    AppSettingsDep,
+    DbSession,
+    PipelineDep,
+    ProcessorDep,
+    ProfileServiceDep,
+    TaskManagerDep,
+)
+from app.routers.scoring import start_rescore
 from app.schemas.candidate_profile import (
     CandidateProfileRead,
     CandidateProfileUpdate,
@@ -32,9 +40,18 @@ async def get_profile(service: ProfileServiceDep) -> CandidateProfileRead:
     "", response_model=CandidateProfileRead, summary="Edit the profile", responses=NO_PROFILE
 )
 async def update_profile(
-    body: CandidateProfileUpdate, service: ProfileServiceDep
+    body: CandidateProfileUpdate,
+    service: ProfileServiceDep,
+    db: DbSession,
+    tasks: TaskManagerDep,
+    pipeline: PipelineDep,
+    config: AppSettingsDep,
 ) -> CandidateProfileRead:
-    return to_read(await service.update(body))
+    updated = to_read(await service.update(body))
+    if config.rescore_on_change and body.changes():
+        await db.commit()  # the background run must see the edited profile
+        start_rescore(tasks, pipeline)  # skills, roles and level feed every score
+    return updated
 
 
 @router.post(

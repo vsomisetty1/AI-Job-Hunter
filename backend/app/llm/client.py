@@ -11,6 +11,7 @@
   temporary failures (rate limits, outages) and permanent request errors.
   Callers degrade to deterministic results on any of them.
 * Caching: identical requests are answered from Postgres (app/llm/cache.py).
+* Pacing: callers may pass a `RateLimiter`; it spaces out real API calls only.
 * Cost: every call returns token usage and USD cost for agent_runs.
 """
 
@@ -28,6 +29,7 @@ from app.core.exceptions import AppError
 from app.llm.cache import LLMCache
 from app.llm.pricing import cost_usd
 from app.llm.prompts.base import PromptTemplate
+from app.llm.rate_limit import RateLimiter
 from app.utils.hashing import hash_json
 
 logger = logging.getLogger(__name__)
@@ -119,8 +121,13 @@ class ClaudeClient:
         model: str | None = None,
         effort: str | None = None,
         use_cache: bool = True,
+        limiter: RateLimiter | None = None,
         **values: str,
     ) -> LLMResult[T]:
+        """Run `prompt` and return its validated output.
+
+        `limiter` paces real API calls only: a cache hit returns at once.
+        """
         if self._client is None:
             raise LLMNotConfiguredError("Claude is not configured (set ANTHROPIC_API_KEY).")
         model = model or self.settings.claude_model_analysis
@@ -138,6 +145,8 @@ class ClaudeClient:
                 except ValidationError:
                     logger.warning("discarding invalid cache entry for %s", prompt.name)
 
+        if limiter is not None:
+            await limiter.acquire()
         output, usage, request_id = await self._call(prompt, model, effort, system, user)
         if self.cache is not None:
             await self.cache.put(

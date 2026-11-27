@@ -15,7 +15,7 @@ REQUIRED_TABLES = {
 # Tables intentionally without created_at / updated_at.
 NO_CREATED_AT = {"agent_runs", "discovery_runs"}  # use started_at
 IMMUTABLE = {  # append-only rows: no updated_at, so no trigger needed
-    "job_scores", "application_events", "agent_runs", "llm_cache_entries",
+    "application_events", "agent_runs", "llm_cache_entries",
 }  # fmt: skip
 
 
@@ -44,7 +44,8 @@ def test_foreign_keys_reference_earlier_tables(schema_sql):
     seen = set()
     for name, table in parse_tables(schema_sql).items():
         for ref in table.references:
-            assert ref in seen, f"{name} references {ref} before it is created"
+            # A table may reference itself (jobs.duplicate_of).
+            assert ref in seen or ref == name, f"{name} references {ref} before it is created"
         seen.add(name)
 
 
@@ -133,6 +134,9 @@ FROZEN_MIGRATION_SHA256 = {
         "5a09c39a801e7679502259e7cc79eb8d7e2a7f07994897f8972777716d6b8fd0"
     ),
     "0003_job_discovery.sql": "3d7cd12fec49dba9457562c4775f0035a58e12ee97e08847dc6cdace9ad1e296",
+    "0004_filtering_scoring.sql": (
+        "e6aec79545965bf6878c654617915042b7fe9a0c1a593381a345c95b7ac18752"
+    ),
 }
 
 

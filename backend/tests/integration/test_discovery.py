@@ -253,17 +253,17 @@ async def test_scheduled_refresh_only_crawls_due_companies(app, client):
 
     route = mock_greenhouse()
     await add(client, "greenhouse", "acme")
-    first = await run_discovery_cycle(app.state.discovery)
+    first = await run_discovery_cycle(app.state.pipeline)
     assert first["skipped"] is False and first["companies_total"] == 1
     assert route.call_count == 1
 
     # Crawled just now: not due, nothing fetched.
-    second = await run_discovery_cycle(app.state.discovery)
+    second = await run_discovery_cycle(app.state.pipeline)
     assert second["companies_total"] == 0 and route.call_count == 1
 
     async with get_engine().begin() as conn:
         await conn.execute(text("UPDATE companies SET last_crawled_at = now() - interval '1 day'"))
-    third = await run_discovery_cycle(app.state.discovery)
+    third = await run_discovery_cycle(app.state.pipeline)
     assert third["companies_total"] == 1 and route.call_count == 2
     triggers = await scalar("SELECT string_agg(DISTINCT trigger, ',') FROM discovery_runs")
     assert triggers == "scheduled"
