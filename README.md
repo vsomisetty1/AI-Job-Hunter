@@ -7,6 +7,10 @@ platform-adapter interfaces.
 
 **Stack:** Next.js 16 + React 19 + TypeScript + Tailwind 4 (Node 26) · FastAPI on Python 3.14 · PostgreSQL 19 · Supabase Storage · Playwright · Claude API · Docker
 
+**Start here:** [PROJECT_STATE.md](PROJECT_STATE.md) (what exists now),
+[AI_CONTEXT.md](AI_CONTEXT.md) (objectives, conventions, AI strategy) and
+[docs/architecture/](docs/architecture/) (ADR-001 to ADR-010).
+
 CI runs lint, tests against Postgres 19, a real-server smoke test and the frontend build
 on every push: see [docs/TESTING.md](docs/TESTING.md).
 
