@@ -1,4 +1,5 @@
 """ORM: application_events (append-only audit trail)"""
+
 import uuid
 from typing import Any
 

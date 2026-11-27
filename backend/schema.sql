@@ -1,9 +1,10 @@
 -- =====================================================================
 -- AI Job Hunter - PostgreSQL schema (requires PostgreSQL 15+)
 --
--- Reference copy of the current schema. Migration 0001 executes the
--- frozen copy in migrations/sql/0001_initial.sql; a unit test keeps the
--- two byte-identical until a second migration exists.
+-- Reference copy of the schema at Alembic head (migrations 0001-0003).
+-- Migrations execute frozen SQL files in migrations/sql/; an integration
+-- test checks that this file and the migrated database have the same
+-- catalog (columns, constraints, indexes, triggers).
 -- The SQLAlchemy models in app/models mirror this file.
 --
 -- Conventions
@@ -49,6 +50,11 @@ CREATE TABLE candidate_profiles (
     primary_roles    text[] NOT NULL DEFAULT '{}',
     related_roles    text[] NOT NULL DEFAULT '{}',
     industries       text[] NOT NULL DEFAULT '{}',
+    skills           text[] NOT NULL DEFAULT '{}',
+    -- Profile generation (Agent 1) lifecycle
+    inference_status text NOT NULL DEFAULT 'none',
+    inference_error  text,
+    inferred_at      timestamptz,
     is_active        boolean NOT NULL DEFAULT true,
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now(),
@@ -58,7 +64,9 @@ CREATE TABLE candidate_profiles (
     CONSTRAINT ck_candidate_profiles_email
         CHECK (email IS NULL OR position('@' in email) > 1),
     CONSTRAINT ck_candidate_profiles_profile_json CHECK (jsonb_typeof(profile) = 'object'),
-    CONSTRAINT ck_candidate_profiles_inference_json CHECK (jsonb_typeof(inference) = 'object')
+    CONSTRAINT ck_candidate_profiles_inference_json CHECK (jsonb_typeof(inference) = 'object'),
+    CONSTRAINT ck_candidate_profiles_inference_status
+        CHECK (inference_status IN ('none', 'pending', 'running', 'complete', 'failed'))
 );
 -- MVP is single-user: at most one active profile.
 CREATE UNIQUE INDEX uq_candidate_profiles_single_active
@@ -77,7 +85,11 @@ CREATE TABLE resumes (
     file_type    text NOT NULL,
     storage_path text NOT NULL,
     content_hash text NOT NULL,
+    size_bytes   integer NOT NULL DEFAULT 0,
     raw_text     text,
+    parse_status text NOT NULL DEFAULT 'pending',
+    parse_method text,
+    parse_error  text,
     parsed_at    timestamptz,
     is_primary   boolean NOT NULL DEFAULT false,
     created_at   timestamptz NOT NULL DEFAULT now(),
@@ -87,6 +99,13 @@ CREATE TABLE resumes (
     CONSTRAINT ck_resumes_filename CHECK (btrim(filename) <> ''),
     CONSTRAINT ck_resumes_file_type CHECK (file_type IN ('pdf', 'docx')),
     CONSTRAINT ck_resumes_content_hash CHECK (content_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_resumes_size CHECK (size_bytes >= 0),
+    CONSTRAINT ck_resumes_parse_status
+        CHECK (parse_status IN ('pending', 'parsed', 'failed')),
+    CONSTRAINT ck_resumes_parse_method
+        CHECK (parse_method IS NULL OR parse_method IN ('deterministic', 'llm_assisted')),
+    CONSTRAINT ck_resumes_parsed_has_time
+        CHECK (parse_status <> 'parsed' OR parsed_at IS NOT NULL),
     CONSTRAINT uq_resumes_profile_hash UNIQUE (profile_id, content_hash),
     CONSTRAINT uq_resumes_storage_path UNIQUE (storage_path)
 );
@@ -151,11 +170,15 @@ CREATE TABLE jobs (
     -- Hash of normalized company + title + location (cross-source dedup).
     -- Deliberately NOT unique: one company may post identical titles.
     dedup_key         text NOT NULL,
+    -- Hash of the normalized posting: a refresh compares it to detect changes.
+    content_hash      text,
     status            text NOT NULL DEFAULT 'new',
     filter_reason     text,
     posted_at         timestamptz,
     first_seen_at     timestamptz NOT NULL DEFAULT now(),
     last_seen_at      timestamptz NOT NULL DEFAULT now(),
+    -- Set when the posting disappears from its board (status 'expired').
+    expired_at        timestamptz,
     -- Raw connector payload (debugging). Large; candidate for pruning.
     raw               jsonb,
     created_at        timestamptz NOT NULL DEFAULT now(),
@@ -178,6 +201,9 @@ CREATE TABLE jobs (
         CHECK ((salary_min IS NULL OR salary_min >= 0) AND (salary_max IS NULL OR salary_max >= 0)),
     CONSTRAINT ck_jobs_currency CHECK (salary_currency IS NULL OR salary_currency ~ '^[A-Z]{3}$'),
     CONSTRAINT ck_jobs_dedup_key CHECK (dedup_key ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_jobs_content_hash
+        CHECK (content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_jobs_expired_at CHECK (expired_at IS NULL OR status = 'expired'),
     CONSTRAINT ck_jobs_requirements_json CHECK (jsonb_typeof(requirements) = 'array'),
     CONSTRAINT ck_jobs_raw_json CHECK (raw IS NULL OR jsonb_typeof(raw) = 'object'),
     CONSTRAINT ck_jobs_seen_order CHECK (last_seen_at >= first_seen_at),
@@ -200,7 +226,13 @@ CREATE TRIGGER trg_jobs_updated
 CREATE TABLE resume_versions (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     resume_id      uuid NOT NULL,
-    job_id         uuid NOT NULL,
+    -- original: the uploaded file; parsed: structured data (parser or user
+    -- edit); tailored: rewritten for a target job / role / company
+    kind           text NOT NULL DEFAULT 'tailored',
+    source         text NOT NULL DEFAULT 'tailoring',
+    job_id         uuid,
+    target_role    text,
+    target_company text,
     version_number integer NOT NULL DEFAULT 1,
     -- Structured resume content used by the PDF/DOCX generators
     content        jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -216,11 +248,25 @@ CREATE TABLE resume_versions (
         FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
     CONSTRAINT ck_resume_versions_version CHECK (version_number >= 1),
     CONSTRAINT ck_resume_versions_content_json CHECK (jsonb_typeof(content) = 'object'),
-    CONSTRAINT uq_resume_versions_resume_job_version UNIQUE (resume_id, job_id, version_number),
+    CONSTRAINT ck_resume_versions_kind CHECK (kind IN ('original', 'parsed', 'tailored')),
+    CONSTRAINT ck_resume_versions_source
+        CHECK (source IN ('upload', 'parser', 'user_edit', 'tailoring')),
+    CONSTRAINT ck_resume_versions_untailored_no_target
+        CHECK (kind = 'tailored'
+               OR (job_id IS NULL AND target_role IS NULL AND target_company IS NULL)),
+    CONSTRAINT ck_resume_versions_tailored_has_target
+        CHECK (kind <> 'tailored' OR job_id IS NOT NULL OR target_role IS NOT NULL),
+    CONSTRAINT ck_resume_versions_target_role
+        CHECK (target_role IS NULL OR btrim(target_role) <> ''),
+    CONSTRAINT ck_resume_versions_target_company
+        CHECK (target_company IS NULL OR btrim(target_company) <> ''),
+    CONSTRAINT uq_resume_versions_resume_version UNIQUE (resume_id, version_number),
     -- Target for the composite FK from applications (same-job guarantee).
     CONSTRAINT uq_resume_versions_id_job UNIQUE (id, job_id)
 );
 CREATE INDEX ix_resume_versions_job_id ON resume_versions (job_id);
+CREATE INDEX ix_resume_versions_resume_kind
+    ON resume_versions (resume_id, kind, version_number DESC);
 CREATE TRIGGER trg_resume_versions_updated
     BEFORE UPDATE ON resume_versions
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -558,3 +604,49 @@ CREATE TABLE llm_cache_entries (
 CREATE INDEX ix_llm_cache_entries_purpose ON llm_cache_entries (purpose);
 CREATE INDEX ix_llm_cache_entries_expires_at
     ON llm_cache_entries (expires_at) WHERE expires_at IS NOT NULL;
+
+-- ---------------------------------------------------------------------
+-- discovery_runs: one row per job-board crawl (monitoring). Counters are
+-- totals over all companies crawled; details holds per-company results.
+-- ---------------------------------------------------------------------
+CREATE TABLE discovery_runs (
+    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    trigger             text NOT NULL,
+    status              text NOT NULL DEFAULT 'running',
+    companies_total     integer NOT NULL DEFAULT 0,
+    companies_succeeded integer NOT NULL DEFAULT 0,
+    companies_failed    integer NOT NULL DEFAULT 0,
+    jobs_found          integer NOT NULL DEFAULT 0,
+    jobs_inserted       integer NOT NULL DEFAULT 0,
+    jobs_updated        integer NOT NULL DEFAULT 0,
+    jobs_unchanged      integer NOT NULL DEFAULT 0,
+    jobs_skipped        integer NOT NULL DEFAULT 0,
+    jobs_expired        integer NOT NULL DEFAULT 0,
+    error               text,
+    -- Per-company results: [{company_id, source, slug, status, counts, error}]
+    details             jsonb NOT NULL DEFAULT '[]'::jsonb,
+    started_at          timestamptz NOT NULL DEFAULT now(),
+    finished_at         timestamptz,
+    duration_ms         integer,
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_discovery_runs_trigger CHECK (trigger IN ('manual', 'scheduled')),
+    CONSTRAINT ck_discovery_runs_status
+        CHECK (status IN ('running', 'succeeded', 'partial', 'failed', 'cancelled')),
+    CONSTRAINT ck_discovery_runs_counts CHECK (
+        companies_total >= 0 AND companies_succeeded >= 0 AND companies_failed >= 0
+        AND jobs_found >= 0 AND jobs_inserted >= 0 AND jobs_updated >= 0
+        AND jobs_unchanged >= 0 AND jobs_skipped >= 0 AND jobs_expired >= 0),
+    CONSTRAINT ck_discovery_runs_finished
+        CHECK (finished_at IS NULL OR finished_at >= started_at),
+    CONSTRAINT ck_discovery_runs_done_has_finish
+        CHECK (status = 'running' OR finished_at IS NOT NULL),
+    CONSTRAINT ck_discovery_runs_duration CHECK (duration_ms IS NULL OR duration_ms >= 0),
+    CONSTRAINT ck_discovery_runs_details_json CHECK (jsonb_typeof(details) = 'array')
+);
+CREATE INDEX ix_discovery_runs_started_at ON discovery_runs (started_at DESC);
+-- One crawl at a time (a second "run now" while one is running is refused).
+CREATE UNIQUE INDEX uq_discovery_runs_one_running ON discovery_runs ((true))
+    WHERE status = 'running';
+CREATE TRIGGER trg_discovery_runs_updated
+    BEFORE UPDATE ON discovery_runs
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

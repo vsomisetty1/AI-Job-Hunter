@@ -1,0 +1,101 @@
+{
+ "apiVersion": "1",
+ "jobs": [
+  {
+   "id": "34413f8d-0000-4bbc-8ade-000000000001",
+   "title": " Machine Learning Engineer ",
+   "department": "Engineering",
+   "team": "ML",
+   "employmentType": "FullTime",
+   "location": "New York, NY (HQ)",
+   "shouldDisplayCompensationOnJobPostings": true,
+   "secondaryLocations": [
+    {
+     "location": "Remote (US)",
+     "address": {
+      "postalAddress": {
+       "addressCountry": "United States"
+      }
+     }
+    }
+   ],
+   "publishedAt": "2026-10-07T17:12:35.753+00:00",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Hybrid",
+   "jobUrl": "https://jobs.ashbyhq.com/acme/34413f8d-0000-4bbc-8ade-000000000001",
+   "applyUrl": "https://jobs.ashbyhq.com/acme/34413f8d-0000-4bbc-8ade-000000000001/application",
+   "descriptionHtml": "<h1><strong>About the Role</strong></h1><p>Train models.</p><h2>What You Need</h2><ul><li><p>3+ years of PyTorch</p></li><li><p>Strong statistics</p></li></ul><h2>Nice-to-Haves</h2><ul><li><p>Robotics experience</p></li></ul>",
+   "descriptionPlain": "Train models.",
+   "compensation": {
+    "compensationTierSummary": "$211K \u2013 $290K \u2022 Offers Equity",
+    "scrapeableCompensationSalarySummary": "$211K - $290K",
+    "compensationTiers": [],
+    "summaryComponents": [
+     {
+      "compensationType": "EquityPercentage",
+      "interval": "NONE",
+      "currencyCode": null,
+      "minValue": null,
+      "maxValue": null
+     },
+     {
+      "compensationType": "Salary",
+      "interval": "1 YEAR",
+      "currencyCode": "USD",
+      "minValue": 211400,
+      "maxValue": 290600
+     }
+    ]
+   }
+  },
+  {
+   "id": "34413f8d-0000-4bbc-8ade-000000000002",
+   "title": "Operations Intern",
+   "employmentType": "Intern",
+   "location": "Remote",
+   "secondaryLocations": [],
+   "publishedAt": "2026-11-01T00:00:00Z",
+   "isListed": true,
+   "isRemote": true,
+   "workplaceType": "Remote",
+   "jobUrl": "https://jobs.ashbyhq.com/acme/34413f8d-0000-4bbc-8ade-000000000002",
+   "applyUrl": null,
+   "descriptionHtml": "<p>Help run operations.</p>",
+   "descriptionPlain": "Help run operations.",
+   "compensation": {
+    "compensationTierSummary": "$0K \u2013 $0K \u2022 Offers Equity",
+    "scrapeableCompensationSalarySummary": "$0K - $0K",
+    "compensationTiers": [],
+    "summaryComponents": [
+     {
+      "compensationType": "EquityPercentage",
+      "interval": "NONE",
+      "currencyCode": null,
+      "minValue": null,
+      "maxValue": null
+     },
+     {
+      "compensationType": "Salary",
+      "interval": "1 HOUR",
+      "currencyCode": "USD",
+      "minValue": 25,
+      "maxValue": 30
+     }
+    ]
+   }
+  },
+  {
+   "id": "34413f8d-0000-4bbc-8ade-000000000003",
+   "title": "Secret Project Lead",
+   "employmentType": "FullTime",
+   "location": "Seattle, WA",
+   "publishedAt": "2026-11-02T00:00:00Z",
+   "isListed": false,
+   "isRemote": false,
+   "workplaceType": "OnSite",
+   "jobUrl": "https://jobs.ashbyhq.com/acme/34413f8d-0000-4bbc-8ade-000000000003",
+   "descriptionHtml": "<p>Hidden.</p>"
+  }
+ ]
+}

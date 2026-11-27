@@ -9,6 +9,7 @@ exists (then update that test to compare against the migrated head).
 Revision ID: 0001
 Revises:
 """
+
 from pathlib import Path
 
 from alembic import context, op

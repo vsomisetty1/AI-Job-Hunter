@@ -3,6 +3,7 @@
 Reads DATABASE_URL (async or sync form) and always migrates with the
 synchronous psycopg2 driver.
 """
+
 import os
 from logging.config import fileConfig
 
@@ -10,6 +11,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 import app.models  # noqa: F401  (populates Base.metadata)
+from app.core.config import normalize_database_url
 from app.models.base import Base
 
 config = context.config
@@ -23,10 +25,8 @@ def get_url() -> str:
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL is not set")
-    return (
-        url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
-        .replace("postgres://", "postgresql+psycopg2://")
-    )
+    # Same normalisation as the app, then swap to the sync driver.
+    return normalize_database_url(url).replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
 
 
 def run_migrations_offline() -> None:

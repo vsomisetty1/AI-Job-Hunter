@@ -1,0 +1,174 @@
+[
+ {
+  "additionalPlain": "The US base range for this position is $120,000-$150,000 plus equity.",
+  "additional": "<div>Benefits included.</div>",
+  "categories": {
+   "commitment": "Permanent",
+   "department": "Engineering",
+   "location": "Remote - US",
+   "team": "Platform",
+   "allLocations": [
+    "Remote - US"
+   ]
+  },
+  "createdAt": 1792767640769,
+  "descriptionPlain": "Role 1",
+  "description": "<div><p>Role 1: build things.</p></div>",
+  "id": "7c0f0e1a-0000-4000-8000-000000000001",
+  "text": "Frontend Engineer",
+  "country": "US",
+  "workplaceType": "remote",
+  "lists": [
+   {
+    "text": "What You'll Do",
+    "content": "<li>Ship features</li><li>Review code</li>"
+   },
+   {
+    "text": "Who You Are",
+    "content": "<li>You have 1+ years of experience</li><li>You like TypeScript</li>"
+   }
+  ],
+  "hostedUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000001",
+  "applyUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000001/apply"
+ },
+ {
+  "additionalPlain": "",
+  "additional": "<div>Benefits included.</div>",
+  "categories": {
+   "commitment": "Full-time",
+   "department": "Engineering",
+   "location": "Austin, TX",
+   "team": "Platform",
+   "allLocations": [
+    "Austin, TX"
+   ]
+  },
+  "createdAt": 1792767640770,
+  "descriptionPlain": "Role 2",
+  "description": "<div><p>Role 2: build things.</p></div>",
+  "id": "7c0f0e1a-0000-4000-8000-000000000002",
+  "text": "Site Reliability Engineer",
+  "country": "US",
+  "workplaceType": "hybrid",
+  "lists": [
+   {
+    "text": "What You'll Do",
+    "content": "<li>Ship features</li><li>Review code</li>"
+   },
+   {
+    "text": "Who You Are",
+    "content": "<li>You have 2+ years of experience</li><li>You like TypeScript</li>"
+   }
+  ],
+  "hostedUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000002",
+  "applyUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000002/apply",
+  "salaryRange": {
+   "min": 140000,
+   "max": 170000,
+   "currency": "USD",
+   "interval": "per-year-salary"
+  }
+ },
+ {
+  "additionalPlain": "",
+  "additional": "<div>Benefits included.</div>",
+  "categories": {
+   "commitment": "Contractor",
+   "department": "Engineering",
+   "location": "London, UK",
+   "team": "Platform",
+   "allLocations": [
+    "London, UK"
+   ]
+  },
+  "createdAt": 1792767640771,
+  "descriptionPlain": "Role 3",
+  "description": "<div><p>Role 3: build things.</p></div>",
+  "id": "7c0f0e1a-0000-4000-8000-000000000003",
+  "text": "Contract Designer",
+  "country": "US",
+  "workplaceType": "onsite",
+  "lists": [
+   {
+    "text": "What You'll Do",
+    "content": "<li>Ship features</li><li>Review code</li>"
+   },
+   {
+    "text": "Who You Are",
+    "content": "<li>You have 3+ years of experience</li><li>You like TypeScript</li>"
+   }
+  ],
+  "hostedUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000003",
+  "applyUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000003/apply",
+  "salaryRange": {
+   "min": 50,
+   "max": 70,
+   "currency": "GBP",
+   "interval": "per-hour-wage"
+  }
+ },
+ {
+  "additionalPlain": "",
+  "additional": "<div>Benefits included.</div>",
+  "categories": {
+   "commitment": "Short Term",
+   "department": "Engineering",
+   "location": "Reno, NV",
+   "team": "Platform",
+   "allLocations": [
+    "Reno, NV"
+   ]
+  },
+  "createdAt": 1792767640772,
+  "descriptionPlain": "Role 4",
+  "description": "<div><p>Role 4: build things.</p></div>",
+  "id": "7c0f0e1a-0000-4000-8000-000000000004",
+  "text": "Warehouse Associate",
+  "country": "US",
+  "workplaceType": "onsite",
+  "lists": [
+   {
+    "text": "What You'll Do",
+    "content": "<li>Ship features</li><li>Review code</li>"
+   },
+   {
+    "text": "Who You Are",
+    "content": "<li>You have 4+ years of experience</li><li>You like TypeScript</li>"
+   }
+  ],
+  "hostedUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000004",
+  "applyUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000004/apply"
+ },
+ {
+  "additionalPlain": "",
+  "additional": "<div>Benefits included.</div>",
+  "categories": {
+   "commitment": null,
+   "department": "Engineering",
+   "location": "Austin, TX",
+   "team": "Platform",
+   "allLocations": [
+    "Austin, TX"
+   ]
+  },
+  "createdAt": 1792767640773,
+  "descriptionPlain": "Role 5",
+  "description": "<div><p>Role 5: build things.</p></div>",
+  "id": "7c0f0e1a-0000-4000-8000-000000000005",
+  "text": "Engineering Manager",
+  "country": "US",
+  "workplaceType": "hybrid",
+  "lists": [
+   {
+    "text": "What You'll Do",
+    "content": "<li>Ship features</li><li>Review code</li>"
+   },
+   {
+    "text": "Who You Are",
+    "content": "<li>You have 5+ years of experience</li><li>You like TypeScript</li>"
+   }
+  ],
+  "hostedUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000005",
+  "applyUrl": "https://jobs.lever.co/acme/7c0f0e1a-0000-4000-8000-000000000005/apply"
+ }
+]

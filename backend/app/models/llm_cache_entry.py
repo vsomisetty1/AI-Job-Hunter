@@ -1,4 +1,5 @@
 """ORM: llm_cache_entries (Postgres-backed LLM response cache; no Redis)"""
+
 from datetime import datetime
 from typing import Any
 

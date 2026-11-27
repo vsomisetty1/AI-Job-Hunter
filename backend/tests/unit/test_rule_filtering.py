@@ -1,4 +1,4 @@
 """Unit: rule filtering
 
-PLACEHOLDER - implemented in PHASE 10.
+PLACEHOLDER - implemented with Agent 4 (deferred to PHASE 6).
 """

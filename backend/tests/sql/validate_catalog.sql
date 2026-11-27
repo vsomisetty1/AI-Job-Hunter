@@ -38,11 +38,11 @@ WHERE c.table_schema = 'public' AND c.column_name = 'updated_at'
         WHERE t.tgrelid = (quote_ident(c.table_name))::regclass
           AND NOT t.tgisinternal AND t.tgname = 'trg_' || c.table_name || '_updated')
 UNION ALL
--- tables without created_at (agent_runs uses started_at)
+-- tables without created_at (agent_runs and discovery_runs use started_at)
 SELECT 'missing_created_at', t.table_name::text
 FROM information_schema.tables t
 WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
-  AND t.table_name NOT IN ('alembic_version', 'agent_runs')
+  AND t.table_name NOT IN ('alembic_version', 'agent_runs', 'discovery_runs')
   AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns c
         WHERE c.table_schema = 'public' AND c.table_name = t.table_name AND c.column_name = 'created_at')

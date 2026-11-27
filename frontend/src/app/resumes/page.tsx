@@ -1,3 +1,6 @@
-// Resumes page
-// PLACEHOLDER - implemented in PHASE 8.
-export {};
+// Resume management page.
+import { ResumesPage } from "@/components/resumes/ResumesPage";
+
+export default function Page() {
+  return <ResumesPage />;
+}

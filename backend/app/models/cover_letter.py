@@ -1,4 +1,5 @@
 """ORM: cover_letters"""
+
 import uuid
 
 from sqlalchemy import CheckConstraint, ForeignKey, Index, Text, UniqueConstraint

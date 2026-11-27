@@ -1,4 +1,5 @@
 """Tiny parser for schema.sql used by tests (no SQL engine required)."""
+
 import re
 from dataclasses import dataclass, field
 
@@ -89,7 +90,9 @@ def parse_indexes(sql: str) -> list:
     out = []
     pattern = r"CREATE (UNIQUE )?INDEX (\w+)\s+ON (\w+) \((.*?)\)\s*(WHERE [^;]*)?;"
     for m in re.finditer(pattern, sql, re.S):
-        out.append(IndexDef(m.group(2), m.group(3), _cols(m.group(4)), bool(m.group(1)), bool(m.group(5))))
+        out.append(
+            IndexDef(m.group(2), m.group(3), _cols(m.group(4)), bool(m.group(1)), bool(m.group(5)))
+        )
     return out
 
 

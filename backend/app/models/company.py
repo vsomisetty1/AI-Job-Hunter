@@ -1,4 +1,5 @@
 """ORM: companies (one row per job board: source + slug)"""
+
 from datetime import datetime
 
 from sqlalchemy import CheckConstraint, DateTime, Index, Integer, Text, UniqueConstraint, text

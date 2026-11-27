@@ -1,8 +1,18 @@
 """ORM: job_scores"""
+
 import uuid
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, SmallInteger, Text, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,9 +47,7 @@ class JobScore(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
     __table_args__ = (
         CheckConstraint("overall_score BETWEEN 0 AND 100", name="ck_job_scores_overall"),
-        CheckConstraint(
-            "interview_probability BETWEEN 0 AND 100", name="ck_job_scores_interview"
-        ),
+        CheckConstraint("interview_probability BETWEEN 0 AND 100", name="ck_job_scores_interview"),
         CheckConstraint("salary_score BETWEEN 0 AND 100", name="ck_job_scores_salary"),
         CheckConstraint("growth_score BETWEEN 0 AND 100", name="ck_job_scores_growth"),
         CheckConstraint("company_score BETWEEN 0 AND 100", name="ck_job_scores_company"),

@@ -1,0 +1,18 @@
+# Architecture decision records
+
+Each ADR records a decision that is already reflected in the code (as of 2026-11-27,
+commit `e505d36`), why it was made, and what it costs. To change a decision, write a new
+ADR that supersedes the old one; don't rewrite history.
+
+| ADR | Decision |
+|---|---|
+| [001](ADR-001.md) | Modular monolith with enforced layers |
+| [002](ADR-002.md) | PostgreSQL as the only datastore; frozen SQL migrations |
+| [003](ADR-003.md) | Async SQLAlchemy with short, explicit units of work |
+| [004](ADR-004.md) | Single-user, local-first security model |
+| [005](ADR-005.md) | In-process scheduler and background tasks (one worker) |
+| [006](ADR-006.md) | Deterministic first; Claude optional, cached, cost-tracked |
+| [007](ADR-007.md) | Untrusted-document pipeline (validation + sandboxed extraction) |
+| [008](ADR-008.md) | Public ATS APIs behind a connector interface; Workday deferred |
+| [009](ADR-009.md) | Job identity, deduplication and lifecycle |
+| [010](ADR-010.md) | Testing and CI strategy |

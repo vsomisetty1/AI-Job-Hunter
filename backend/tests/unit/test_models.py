@@ -1,12 +1,13 @@
 """ORM models must mirror schema.sql (tables, columns, named constraints)."""
+
 import pytest
 
 pytest.importorskip("sqlalchemy")
 
-from sqlalchemy import CheckConstraint, UniqueConstraint  # noqa: E402
+from sqlalchemy import CheckConstraint, UniqueConstraint
 
-from app.models import Base  # noqa: E402
-from tests.unit.schema_parser import parse_tables  # noqa: E402
+from app.models import Base
+from tests.unit.schema_parser import parse_tables
 
 
 def test_tables_match_schema(schema_sql):
@@ -24,7 +25,7 @@ def test_named_constraints_match_schema(schema_sql):
         orm = {
             c.name
             for c in Base.metadata.tables[name].constraints
-            if isinstance(c, (CheckConstraint, UniqueConstraint)) and c.name
+            if isinstance(c, CheckConstraint | UniqueConstraint) and c.name
         }
         sql = {c for c in sql_table.constraints if c.startswith(("ck_", "uq_"))}
         assert orm == sql, name
@@ -47,7 +48,16 @@ def test_composite_foreign_keys_guarantee_same_job():
 
 
 def test_job_and_application_history_protected():
-    jobs_fk = {fk.parent.name: fk.ondelete for fk in Base.metadata.tables["jobs"].foreign_keys}
-    app_fk = {fk.parent.name: fk.ondelete for fk in Base.metadata.tables["applications"].foreign_keys}
+    def single_column_fks(table: str) -> dict[str, str | None]:
+        # Composite FKs (e.g. applications.(resume_version_id, job_id)) also contain
+        # job_id; only single-column constraints describe the column's own rule.
+        return {
+            fk.columns[0].name: fk.ondelete
+            for fk in Base.metadata.tables[table].foreign_key_constraints
+            if len(fk.columns) == 1
+        }
+
+    jobs_fk = single_column_fks("jobs")
+    app_fk = single_column_fks("applications")
     assert jobs_fk["company_id"] == "RESTRICT"
     assert app_fk["job_id"] == "RESTRICT"

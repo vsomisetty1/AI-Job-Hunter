@@ -1,2 +1,2 @@
-# Global styles
-# PLACEHOLDER - implemented in PHASE 8.
+/* Global styles (Tailwind v4, CSS-first config). Dark mode follows the OS setting. */
+@import "tailwindcss";

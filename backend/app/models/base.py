@@ -2,6 +2,7 @@
 
 The DDL source of truth is backend/schema.sql; these models mirror it.
 """
+
 import uuid
 from datetime import datetime
 
@@ -16,7 +17,7 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention={"fk": "fk_%(table_name)s_%(column_0_name)s"})
 
 
-def text_array() -> ARRAY:
+def text_array() -> ARRAY[str]:
     return ARRAY(Text)
 
 

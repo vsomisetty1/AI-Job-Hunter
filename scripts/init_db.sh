@@ -8,7 +8,7 @@ if [ -f "$ROOT/.env" ]; then
   set -a; . "$ROOT/.env"; set +a
 fi
 
-# .env uses the docker hostname "db"; from the host it is localhost.
+# Older .env files used the docker hostname "db"; from the host it is localhost.
 export DATABASE_URL="${DATABASE_URL//@db:/@localhost:}"
 
 cd "$ROOT/backend"

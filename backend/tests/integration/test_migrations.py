@@ -4,7 +4,6 @@ Set TEST_DATABASE_URL to an EMPTY, disposable database, e.g.
   postgresql+psycopg2://jobhunter:change_me@localhost:5432/jobhunter_test
 WARNING: these tests run `alembic downgrade base`, which drops all tables.
 """
-from pathlib import Path
 
 import pytest
 
@@ -12,15 +11,16 @@ pytest.importorskip("sqlalchemy")
 pytest.importorskip("alembic")
 pytest.importorskip("psycopg2")
 
-from alembic import command  # noqa: E402
-from alembic.autogenerate import compare_metadata  # noqa: E402
-from alembic.config import Config  # noqa: E402
-from alembic.migration import MigrationContext  # noqa: E402
-from sqlalchemy import create_engine, inspect, text  # noqa: E402
+import psycopg2
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.config import Config
+from alembic.migration import MigrationContext
+from sqlalchemy import create_engine, inspect, make_url, text
 
-import app.models  # noqa: E402,F401
-from app.models.base import Base  # noqa: E402
-from tests.conftest import BACKEND_DIR  # noqa: E402
+import app.models  # noqa: F401
+from app.models.base import Base
+from tests.conftest import BACKEND_DIR
 
 SQL_DIR = BACKEND_DIR / "tests" / "sql"
 EXPECTED = set(Base.metadata.tables)
@@ -47,7 +47,7 @@ def _run_sql_file(eng, name: str):
         rows = []
         try:
             rows = cur.fetchall()
-        except Exception:  # statement had no result set
+        except psycopg2.ProgrammingError:  # statement had no result set
             pass
         raw.commit()
         return rows
@@ -88,14 +88,140 @@ def test_behavioural_constraints(db):
     assert rows and rows[-1][0] == "behavior checks passed"
 
 
-def test_orm_matches_database_no_structural_drift(db):
-    """No table or column may exist on only one side (ORM vs migrated DB)."""
+def test_orm_matches_database_exactly(db):
+    """ORM vs migrated DB: no difference in tables, columns, types, nullability,
+    server defaults, indexes, unique constraints or foreign keys."""
     eng, _ = db
     with eng.connect() as conn:
-        diffs = compare_metadata(MigrationContext.configure(conn), Base.metadata)
-    structural = {"add_table", "remove_table", "add_column", "remove_column"}
-    flat = []
-    for d in diffs:
-        flat += d if isinstance(d, list) else [d]
-    bad = [d for d in flat if d[0] in structural]
-    assert not bad, bad
+        ctx = MigrationContext.configure(
+            conn, opts={"compare_type": True, "compare_server_default": True}
+        )
+        diffs = compare_metadata(ctx, Base.metadata)
+    assert diffs == [], diffs
+
+
+# ---------------------------------------------------------------------------
+# schema.sql must describe exactly what the migrations build.
+# ---------------------------------------------------------------------------
+_CATALOG_QUERIES = {
+    "columns": """
+        SELECT table_name, column_name, udt_name, is_nullable, coalesce(column_default, '')
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name <> 'alembic_version'
+    """,
+    "constraints": """
+        SELECT conrelid::regclass::text, conname, pg_get_constraintdef(oid)
+        FROM pg_constraint
+        WHERE connamespace = 'public'::regnamespace
+          AND conrelid::regclass::text <> 'alembic_version'
+    """,
+    "indexes": """
+        SELECT tablename, indexname, indexdef FROM pg_indexes
+        WHERE schemaname = 'public' AND tablename <> 'alembic_version'
+    """,
+    "triggers": """
+        SELECT tgrelid::regclass::text, tgname, pg_get_triggerdef(oid)
+        FROM pg_trigger WHERE NOT tgisinternal
+    """,
+    "functions": """
+        SELECT proname, prosrc FROM pg_proc
+        WHERE pronamespace = 'public'::regnamespace
+    """,
+}
+
+
+def _catalog(eng) -> dict[str, set[tuple]]:
+    with eng.connect() as conn:
+        return {k: {tuple(r) for r in conn.execute(text(q))} for k, q in _CATALOG_QUERIES.items()}
+
+
+def test_reference_schema_sql_matches_migrated_head(db, test_database_url):
+    """Build schema.sql in a scratch database and compare catalogs with head."""
+    migrated, _ = db
+    url = make_url(test_database_url.replace("+asyncpg", "+psycopg2"))
+    ref_name = f"{url.database}_schema_ref"
+    admin = create_engine(url, isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{ref_name}"'))
+        conn.execute(text(f'CREATE DATABASE "{ref_name}"'))
+    ref = create_engine(url.set(database=ref_name))
+    try:
+        raw = ref.raw_connection()
+        try:
+            raw.cursor().execute((BACKEND_DIR / "schema.sql").read_text(encoding="utf-8"))
+            raw.commit()
+        finally:
+            raw.close()
+        expected, actual = _catalog(ref), _catalog(migrated)
+        for kind in _CATALOG_QUERIES:
+            missing = sorted(expected[kind] - actual[kind])
+            extra = sorted(actual[kind] - expected[kind])
+            assert not missing and not extra, (
+                f"{kind}: only in schema.sql={missing} only in DB={extra}"
+            )
+    finally:
+        ref.dispose()
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{ref_name}"'))
+        admin.dispose()
+
+
+def test_0002_renumbers_versions_and_downgrade_removes_untailored(db):
+    """Data written under 0001 survives 0002; 0002-only rows are dropped on downgrade."""
+    eng, cfg = db
+    command.downgrade(cfg, "0001")
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('A') RETURNING id")
+        ).scalar()
+        r = conn.execute(
+            text(
+                "INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash) "
+                "VALUES (:p, 'cv.pdf', 'pdf', 'r/1.pdf', repeat('a', 64)) RETURNING id"
+            ),
+            {"p": p},
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) "
+                "VALUES ('Acme', 'lever', 'acme') RETURNING id"
+            )
+        ).scalar()
+        for n in (1, 2):
+            j = conn.execute(
+                text(
+                    "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                    "VALUES (:c, :n, 'Eng', :u, repeat('b', 64)) RETURNING id"
+                ),
+                {"c": c, "n": str(n), "u": f"https://x.test/{n}"},
+            ).scalar()
+            # Same version_number 1 for two jobs: legal under 0001.
+            conn.execute(
+                text("INSERT INTO resume_versions (resume_id, job_id) VALUES (:r, :j)"),
+                {"r": r, "j": j},
+            )
+
+    command.upgrade(cfg, "head")
+    with eng.begin() as conn:
+        rows = conn.execute(
+            text("SELECT kind, source, version_number FROM resume_versions ORDER BY version_number")
+        ).all()
+        assert [tuple(x) for x in rows] == [
+            ("tailored", "tailoring", 1),
+            ("tailored", "tailoring", 2),
+        ]
+        conn.execute(
+            text(
+                "INSERT INTO resume_versions (resume_id, kind, source, version_number) "
+                "VALUES (:r, 'parsed', 'parser', 3)"
+            ),
+            {"r": r},
+        )
+
+    command.downgrade(cfg, "0001")
+    with eng.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM resume_versions")).scalar() == 2
+    command.upgrade(cfg, "head")
+    with eng.begin() as conn:  # leave no user data behind for other tests
+        for table in ("candidate_profiles", "jobs", "companies"):  # FK order
+            conn.execute(text(f"DELETE FROM {table}"))

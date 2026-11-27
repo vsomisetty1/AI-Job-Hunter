@@ -1,0 +1,129 @@
+# CI: lint, type-check, test and smoke-test on every push and pull request.
+# Each project phase extends this workflow with the checks for what it adds
+# (see docs/TESTING.md).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.14"
+  NODE_VERSION: "26"
+
+jobs:
+  backend:
+    name: Backend (lint, types, tests, smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:19-alpine
+        env:
+          POSTGRES_USER: jobhunter
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: jobhunter
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobhunter -d jobhunter"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # App database (smoke test) and a separate throwaway database for tests:
+      # the migration tests drop every table.
+      DATABASE_URL: postgresql://jobhunter:ci_password@localhost:5432/jobhunter
+      TEST_DATABASE_URL: postgresql+psycopg2://jobhunter:ci_password@localhost:5432/jobhunter_test
+      PGPASSWORD: ci_password
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip check
+
+      - name: Lint (incl. security rules)
+        run: ruff check app tests migrations
+
+      - name: Dependency vulnerability audit
+        run: pip-audit -r requirements.txt --progress-spinner off
+
+      - name: Format check
+        run: ruff format --check app tests migrations
+
+      - name: Type check (mypy --strict)
+        run: mypy
+
+      - name: Create test database
+        run: psql -h localhost -U jobhunter -d jobhunter -c "CREATE DATABASE jobhunter_test"
+
+      - name: Server version
+        run: psql -h localhost -U jobhunter -d jobhunter -tAc "SHOW server_version"
+
+      - name: Tests (unit + database integration)
+        # Any skip fails the job: a misconfigured TEST_DATABASE_URL would
+        # otherwise silently skip every database test.
+        run: |
+          pytest -ra 2>&1 | tee /tmp/pytest.txt
+          if grep -qE "[0-9]+ skipped" /tmp/pytest.txt; then
+            echo "::error::tests were skipped"; exit 1
+          fi
+
+      - name: Smoke test (real server)
+        run: ../scripts/smoke_backend.sh
+
+  frontend:
+    name: Frontend (typecheck, lint, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dependency vulnerability audit
+        run: npm audit --audit-level=moderate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
