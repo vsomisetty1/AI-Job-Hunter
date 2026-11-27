@@ -17,6 +17,7 @@ from app.routers import (
     discovery,
     health,
     jobs,
+    packages,
     profile,
     resumes,
     scoring,
@@ -32,6 +33,7 @@ api_v1_router.include_router(jobs.router)
 api_v1_router.include_router(companies.router)
 api_v1_router.include_router(discovery.router)
 api_v1_router.include_router(scoring.router)
+api_v1_router.include_router(packages.router)
 api_v1_router.include_router(system.router)
 
 health_router = health.router

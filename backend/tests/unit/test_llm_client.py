@@ -139,6 +139,9 @@ def test_prompt_registry_and_rendering():
         "career_analysis",
         "skill_extraction",
         "job_scoring",
+        "resume_tailor",
+        "cover_letter",
+        "application_answers",
     }
     for p in PROMPTS.values():
         assert p.version and p.max_tokens > 0

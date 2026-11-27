@@ -24,7 +24,8 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | 4 | Resume intelligence (Agents 0, 1; resume versioning) | Done |
 | 5 | Job discovery (Agents 2, 3; Agent 4 filtering moves to Phase 6) | Done |
 | 6 | Rule filtering + scoring (Agents 4, 5; optional Claude scoring; learning moves to Phase 8) | Done |
-| 7 | Application packages + automation (Agents 6, 7, 8, 9, 10) | Pending |
+| 7 | Application packages + approval workflow (Agents 6, 7, 8, 9) | Done |
+| 7b | Browser automation from approved packages (Agent 10) | Pending |
 | 8 | Frontend | Pending |
 | 9 | Deployment | Pending |
 | 10 | Testing | Pending |
@@ -150,6 +151,34 @@ How it works:
 API: `/api/v1/jobs?sort=score&filter_state=passed&min_score=60`, `/api/v1/jobs/{id}`
 (with `filter_result` and `scores`), `POST /api/v1/scoring/runs`,
 `GET /api/v1/scoring/summary`.
+
+## Application packages (Phase 7)
+
+From a job page, **Generate package** builds everything needed to apply, for you to review:
+
+1. **Tailored resume** (Agent 6): skills the job asks for move to the front in the posting's
+   spelling, the most relevant bullets lead each role, the most relevant projects come first,
+   and the summary opens with one sentence of profile facts. Every change is stored with its
+   section, before/after, reason and time (see **Changes**). With "Reword with Claude", Claude
+   may also reword bullets and the summary; each rewording is checked and dropped if it adds a
+   skill or a number your resume does not have.
+2. **Files** (Agent 7): PDF and DOCX of the tailored and the original resume, single-column
+   and text-only for ATS parsers.
+3. **Cover letter** (Agent 8, optional): 150–300 words built from your resume (or written by
+   Claude and checked the same way), as text, PDF and DOCX. Every version is kept.
+4. **Answers** (Agent 9): why this company, why you are qualified, salary, relocation,
+   sponsorship, work authorization, years of experience and years per required skill, each
+   with the facts it used. Anything your profile and settings cannot answer, or that is
+   personal, is marked **needs your input** instead of guessed.
+
+**Approval** (Packages page): review, edit answers, then **Approve** (the job's application
+becomes `ready` in approval mode, for the coming automation phase), **Reject** (with a
+reason), **Regenerate** (a new version; the old one is kept as superseded) or **I applied
+with this package**. The app never submits anything itself.
+
+API: `POST /api/v1/packages` (202), `GET /api/v1/packages?status=&job_id=`,
+`GET /api/v1/packages/{id}`, `POST .../{id}/review|approve|reject|regenerate|mark-submitted`,
+`PATCH .../{id}/answers/{answer_id}`, `GET .../{id}/files/{resume|cover-letter|original-resume}.{pdf|docx}`.
 
 ## Run it locally
 

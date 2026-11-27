@@ -49,6 +49,7 @@ class Setting(Base):
     claude_scoring_min_score: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="60"
     )
+    willing_to_relocate: Mapped[bool | None] = mapped_column()
     extra: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=EMPTY_OBJECT
     )

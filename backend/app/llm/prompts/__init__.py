@@ -2,19 +2,34 @@
 
 from typing import Any
 
+from app.llm.prompts.application_answers import APPLICATION_ANSWERS
 from app.llm.prompts.base import PromptTemplate
 from app.llm.prompts.career_analysis import CAREER_ANALYSIS
+from app.llm.prompts.cover_letter import COVER_LETTER
 from app.llm.prompts.job_scoring import JOB_SCORING
 from app.llm.prompts.profile_inference import PROFILE_INFERENCE
 from app.llm.prompts.resume_parse import RESUME_PARSE, ResumeExtractionOutput
+from app.llm.prompts.resume_tailor import RESUME_TAILOR
 from app.llm.prompts.skill_extraction import SKILL_EXTRACTION
 
 PROMPTS: dict[str, PromptTemplate[Any]] = {
     p.name: p
-    for p in (RESUME_PARSE, PROFILE_INFERENCE, CAREER_ANALYSIS, SKILL_EXTRACTION, JOB_SCORING)
+    for p in (
+        RESUME_PARSE,
+        PROFILE_INFERENCE,
+        CAREER_ANALYSIS,
+        SKILL_EXTRACTION,
+        JOB_SCORING,
+        RESUME_TAILOR,
+        COVER_LETTER,
+        APPLICATION_ANSWERS,
+    )  # fmt: skip
 }
 
 __all__ = [
+    "APPLICATION_ANSWERS",
+    "COVER_LETTER",
+    "RESUME_TAILOR",
     "CAREER_ANALYSIS",
     "JOB_SCORING",
     "PROFILE_INFERENCE",

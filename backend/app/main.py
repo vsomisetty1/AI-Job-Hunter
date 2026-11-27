@@ -37,6 +37,10 @@ OPENAPI_TAGS = [
     {"name": "companies", "description": "Company job boards to crawl (Greenhouse, Lever, Ashby)."},
     {"name": "discovery", "description": "Run discovery, follow runs, connector health."},
     {"name": "scoring", "description": "Rule filtering and job scoring (rules, optional Claude)."},
+    {
+        "name": "packages",
+        "description": "Application packages: tailored resume, cover letter, answers; approval.",
+    },
     {"name": "system", "description": "App info, scheduled jobs and background tasks."},
 ]
 

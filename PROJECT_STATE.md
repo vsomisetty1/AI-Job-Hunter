@@ -1,12 +1,12 @@
 # Project state
 
-Snapshot of the repository as of **2026-11-27**, at the Phase 6 commit `feat: filtering and scoring engine`.
+Snapshot of the repository as of **2026-11-27**, at the Phase 7 commit `feat: application package generation`.
 It was written from the code, schema, tests and git history, not from memory.
 Update it at the end of every phase.
 
 Companion documents:
 - [AI_CONTEXT.md](AI_CONTEXT.md): objectives, conventions, strategy
-- [docs/architecture/](docs/architecture/): ADRs 001–011
+- [docs/architecture/](docs/architecture/): ADRs 001–012
 - [docs/TESTING.md](docs/TESTING.md): CI and test layout
 - [docs/VALIDATION.md](docs/VALIDATION.md): the real-world discovery check
 
@@ -20,9 +20,10 @@ Companion documents:
 | 4. Resume intelligence | `37e8196` | Upload validation and sandboxed extraction, deterministic parser, optional Claude enrichment, profile generation, resume versioning, frontend resume/profile pages |
 | Audit | `96f8e92` | Production-readiness fixes: strict mypy, architecture tests, recovery of interrupted work, DB audit |
 | 5. Job discovery | `e505d36` | Greenhouse/Lever/Ashby connectors, normalization, deduplication, persistence, discovery runs and monitoring, scheduler, Jobs and Discovery UI, real-world validation script |
-| 6. Filtering and scoring | `feat: filtering and scoring engine` | Migration 0004, cross-board duplicate sweep, Agent 4 rule filter, Agent 5 rule-based scoring, optional Claude scoring (cached, capped, paced), Discovery → Deduplication → Filtering → Scoring pipeline, scoring API, Jobs score column/filters/detail breakdown, Settings page |
+| 6. Filtering and scoring | `5edc75b` | Migration 0004, cross-board duplicate sweep, Agent 4 rule filter, Agent 5 rule-based scoring, optional Claude scoring (cached, capped, paced), Discovery → Deduplication → Filtering → Scoring pipeline, scoring API, Jobs score column/filters/detail breakdown, Settings page |
+| 7. Application packages | `feat: application package generation` | Migration 0005; Agent 6 tailoring with change log; Agent 7 PDF/DOCX rendering; Agent 8 cover letters; Agent 9 answers; truthfulness guard; package generation (background) and approval workflow (review, approve, reject, regenerate, mark submitted); packages API; approval queue, review, tailored resume, diff, cover letter and answers pages |
 
-**Not started:** learning/insights (moved to Phase 8), Phase 7 (application packages and automation), Phase 8 (remaining frontend), Phase 9 (deployment), Phase 10 (end-to-end testing).
+**Not started:** browser automation (Agent 10, the second half of the original Phase 7), learning/insights (moved to Phase 8), Phase 8 (remaining frontend), Phase 9 (deployment), Phase 10 (end-to-end testing).
 
 ## 2. Current architecture
 
@@ -79,6 +80,10 @@ Key rules:
   - Optional Claude score for the best matches (opt-in, API key, per-run/daily caps, pacing, cache).
   - Jobs page sorted by score with match/filtered/min-score controls and a Re-score button; job page explains score and filter decisions.
   - Settings or profile edits re-filter and re-score in the background.
+- **Application packages:**
+  - From a job page, generate a package: a resume tailored to the job (reordered, respelled, optionally reworded by Claude; never with added skills, employers, dates or numbers), a cover letter (150–300 words, from resume facts), and answers to common questions (why this company, why qualified, salary, relocation, sponsorship, work authorization, years and per-skill experience), each with its evidence.
+  - PDF and DOCX of the tailored and the original resume and of the letter (ATS-friendly).
+  - Review every change with its reason, edit answers, then approve (the application becomes `ready` in approval mode), reject, regenerate (new version) or record that you applied. Nothing is submitted by the app.
 - **Monitoring:**
   - Discovery runs with counts and per-company results.
   - Per-company crawl status and failure counts.
@@ -91,23 +96,25 @@ Verified live on 2026-11-27: 7 real boards, 1,697 jobs stored. A repeat run inse
 
 ## 4. Database summary
 
-PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0004**. `backend/schema.sql` is the readable reference. Migrations execute frozen SQL files (`backend/migrations/sql/`) pinned by SHA-256 in `tests/unit/test_schema_sql.py`.
+PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0005**. `backend/schema.sql` is the readable reference. Migrations execute frozen SQL files (`backend/migrations/sql/`) pinned by SHA-256 in `tests/unit/test_schema_sql.py`.
 
 | Table | Purpose | Used by |
 |---|---|---|
 | `candidate_profiles` | Parsed and inferred career profile, user overrides, inference status | Phase 4 |
 | `resumes` | Uploaded files (hash, storage key, parse status, primary flag) | Phase 4 |
-| `resume_versions` | `original` / `parsed` / `tailored` versions with history | Phase 4 (tailored: Phase 6/7) |
+| `resume_versions` | `original` / `parsed` / `tailored` versions; tailored ones keep `base_version_id`, `changes` (section, before/after, reason, time) and `tailoring` notes; rendered `pdf_path`/`docx_path` | Phases 4, 7 |
 | `companies` | Tracked job boards (source + slug), crawl status, failures | Phase 5 |
 | `jobs` | Normalized postings: dedup key, content hash, first/last seen, expiry, raw payload; filter decision (`filter_result`, `filter_reason`, `filter_hash`, `filtered_at`) and `duplicate_of` | Phases 5–6 |
 | `discovery_runs` | One row per discovery run; at most one `running` (partial unique index) | Phase 5 |
 | `agent_runs` | One row per agent invocation or pipeline stage: status, timing, tokens, USD cost | Phases 4–6 |
 | `llm_cache_entries` | Claude response cache, keyed by prompt version, model and input | Phase 4 |
-| `settings` | Single-row preferences (locations, remote, job types, salary, sponsorship, exclusions, mode, cap, `discovery_enabled`, `claude_scoring_enabled`, `claude_scoring_min_score`) | Phases 3, 6 |
+| `settings` | Single-row preferences (locations, remote, job types, salary, sponsorship, work authorization, `willing_to_relocate`, exclusions, mode, cap, `discovery_enabled`, `claude_scoring_enabled`, `claude_scoring_min_score`) | Phases 3, 6, 7 |
 | `job_scores` | One current score per job + profile + `scoring_method` (`rules`/`claude`): components, breakdown, matched/missing skills, input hash | Phase 6 |
-| `cover_letters` | Generated letters | **unused**, Phase 7 |
-| `applications`, `application_events`, `application_answers` | Application tracking and answers | **unused**, Phase 7 |
-| `browser_sessions` | Playwright storage state per platform | **unused**, Phase 7 |
+| `application_packages` | One per generation: job, profile, version, status (generating → generated → reviewed → approved → submitted; rejected/failed/superseded), links to score, base and tailored resume version, cover letter and application; score snapshot; lifecycle timestamps; one live package per job | Phase 7 |
+| `cover_letters` | Every generated letter (version per job + profile), word count, method (`rules`/`claude`), facts and notes | Phase 7 |
+| `application_answers` | Answers owned by a package (or later an application) with source, confidence, `needs_review` and evidence | Phase 7 |
+| `applications`, `application_events` | Created/updated on approval (`ready`, APPROVAL_MODE) with the package's artifacts; events for created/approved/withdrawn/submitted | Phase 7 (automation: next phase) |
+| `browser_sessions` | Playwright storage state per platform | **unused**, next phase |
 
 Conventions:
 - uuid primary keys; `timestamptz`.
@@ -127,10 +134,10 @@ Stack:
 
 | Area | Implemented | Placeholder |
 |---|---|---|
-| Routers (`/api/v1`) | `resumes`, `profile`, `settings`, `system`, `jobs`, `companies`, `discovery`, `scoring`; unversioned `health` | `applications`, `insights`, `agent_runs` |
-| Services | resume, resume_processing, profile, settings, pipeline (`JobPipeline`), job, company, discovery, filtering, scoring, job_normalizer | application |
-| Agents | 0 resume parser, 1 profile inference, 2 job discovery, 3 deduplication, 4 rule filtering, 5 rule-based scoring; `runs.py` (agent_runs) | 6 tailoring, 7 resume generation, 8 cover letters, 9 answers, 10 application agent |
-| Adapters | connectors (3 platforms), documents, parsing, llm (client, cache, pricing, rate limiter; prompts for parse/profile/skills/career/job scoring), storage (local, Supabase) | automation (Playwright), llm prompts for tailoring/cover letters/answers |
+| Routers (`/api/v1`) | `resumes`, `profile`, `settings`, `system`, `jobs`, `companies`, `discovery`, `scoring`, `packages`; unversioned `health` | `applications`, `insights`, `agent_runs` |
+| Services | resume, resume_processing, profile, settings, pipeline (`JobPipeline`), job, company, discovery, filtering, scoring, package (`PackageGenerator`, `PackageWorkflow`), job_normalizer | application (automation) |
+| Agents | 0 resume parser, 1 profile inference, 2 job discovery, 3 deduplication, 4 rule filtering, 5 rule-based scoring, 6 resume tailoring, 7 PDF/DOCX rendering, 8 cover letters, 9 application answers; `truthfulness.py`; `runs.py` (agent_runs) | 10 application agent |
+| Adapters | connectors (3 platforms), documents, parsing, llm (client, cache, pricing, rate limiter; prompts for parse/profile/skills/career/job scoring/tailoring/cover letter/answers), storage (local, Supabase) | automation (Playwright) |
 
 Behaviour:
 - **Errors:** every error is returned as `{"error": {"code", "message", "details"}}` and carries an `X-Request-ID`.
@@ -148,6 +155,8 @@ Stack: Next.js 16.4 (App Router), React 19.3, TypeScript 6.0, Tailwind 4, SWR 2.
 | `/jobs`, `/jobs/[id]` | Done: search, filters (incl. matches/filtered, min score), sort by score, pagination, re-score; detail with score breakdown, filter checks, raw JSON |
 | `/settings` | Done: locations, workplace, employment types, salary, sponsorship, exclusions, Claude scoring |
 | `/discovery` | Done: run and follow discovery, connector health, companies, suggestions, run history |
+| `/packages` | Done: approval queue (needs review / approved / submitted / rejected & failed / all) |
+| `/packages/[id]` (+ `/resume`, `/diff`, `/cover-letter`, `/answers`) | Done: package review with approve/reject/regenerate/“I applied”, tailored resume viewer, resume diff viewer, cover letter viewer, answers viewer with editing; downloads |
 | `/` (dashboard), `/applications`, `/activity` | Placeholder pages |
 
 The API client lives in `src/lib/api/`, hooks in `src/hooks/`, and types mirroring the backend schemas in `src/types/index.ts`.
@@ -188,21 +197,27 @@ Validation:
 
 See ADR-011 and the README section. Pipeline: `JobPipeline` (`services/pipeline_service.py`) runs Discovery → Deduplication (`FilteringService.mark_duplicates`) → Filtering (Agent 4 via `FilteringService.run`) → Scoring (Agent 5 + optional Claude via `ScoringService.run`), each stage an `agent_runs` row, serialised by a lock. Filter decisions and rule scores are skipped when their input hash is unchanged. A Claude score is the effective score only while its `input_hash` equals the rule row's. Claude limits: `CLAUDE_SCORING_MAX_PER_RUN`, `CLAUDE_SCORING_MAX_PER_DAY` (counted from `agent_runs`), `CLAUDE_SCORING_PER_MINUTE`.
 
+## 8c. Application packages summary (Phase 7)
+
+See ADR-012 and the README section. `PackageGenerator.generate` (background task) loads the job, active profile, primary resume's latest parsed version, settings and the job's effective score (computed with Agent 5 if the job was never scored), then runs Agents 6, 8 and 9 with no transaction open, renders files with Agent 7, writes them to storage, and saves the tailored resume version, cover letter, answers and package in one short transaction. `PackageWorkflow` handles the state changes inside the request. `app/agents/truthfulness.py` checks every generated text: no skill or number the resume lacks; tailored resumes keep contact, roles, dates, education and certifications identical.
+
 ## 9. Testing status
 
 - **Backend:**
-  - 396 tests pass (unit, plus integration on real Postgres). The 3 live tests are deselected by default.
+  - 451 tests pass (unit, plus integration on real Postgres). The 3 live tests are deselected by default.
   - CI fails on any skip; warnings are errors.
-- **Frontend:** 43 Vitest tests.
+- **Frontend:** 57 Vitest tests.
 - **CI** (`.github/workflows/ci.yml`, on every push):
-  - backend: pip check, ruff (incl. security rules), pip-audit, format, mypy strict, pytest on Postgres 19, smoke script against the real server (now including a filtering/scoring run)
+  - backend: pip check, ruff (incl. security rules), pip-audit, format, mypy strict, pytest on Postgres 19, smoke script against the real server (now including a filtering/scoring run and a package generate/download/review/approve)
   - frontend: npm audit, typecheck, lint, test, build
 - **Weekly:** `live-connectors.yml`.
 - **No empty test placeholders remain.** The Phase 1 stubs were either implemented (`test_rule_filtering.py`, `test_scoring.py`, `test_api.py`, `test_pipeline.py`) or removed (`test_resume_parser.py`, covered by `test_parsing.py`; `test_form_engine.py`, `tests/e2e/test_apply_flow.py` and `frontend/e2e/dashboard.spec.ts`, which Phases 7 and 10 will create for real). Playwright e2e is not run in CI.
 
 ## 10. Technical debt
 
-- `Settings.app_version` is `0.6.0`; nothing bumps it automatically.
+- `Settings.app_version` is `0.7.0`; nothing bumps it automatically.
+- Generated PDF/DOCX files are not deleted when their resume or package is deleted (only the uploaded original is); a cleanup job is needed eventually.
+- Package generation is a background task: like the others it is lost on restart (the package is then marked failed and can be regenerated).
 - `docs/ARCHITECTURE.md`, `docs/SETUP.md` and `docs/SUPABASE_SETUP.md` are still Phase 1 placeholders. ADRs and this file now carry that content; `docs/PHASE_3_PLAN.md` is historical.
 - `backend/Dockerfile` and `frontend/Dockerfile` are placeholders. `docker-compose.yml` runs only the database.
 - Agent 5's skill matching knows the built-in taxonomy plus the candidate's own skills only; synonyms need Claude (or a future Claude Code command).
@@ -226,6 +241,8 @@ See ADR-011 and the README section. Pipeline: `JobPipeline` (`services/pipeline_
 - **Only three ATS platforms**, and only boards you add (no search across all companies).
 - Location matching knows a small alias table and US states only (no country/city database); unknown places match by name.
 - Sponsorship detection is phrase-based; unusual wording can slip through (the job is then kept).
+- Cover letters and the “why this company” answer are templates over facts unless Claude is used; they are flagged for personalisation.
+- Per-skill experience years count whole roles whose text names the skill; a skill used in part of a role is over-counted.
 - No dashboard, applications or activity UI yet.
 
 ## 12. Deferred functionality
@@ -234,8 +251,8 @@ See ADR-011 and the README section. Pipeline: `JobPipeline` (`services/pipeline_
 |---|---|
 | Learning/insights (`learning/`) from outcomes | Phase 8 |
 | Claude Code commands to score a shortlist under the Pro plan (via the API) | Phase 7 or 8 |
-| Agents 6–9: resume tailoring, resume generation, cover letters, application answers | Phase 7 |
-| Agent 10 + `automation/`: Playwright form filling, checkpoints, approval/autonomous modes, daily cap | Phase 7 |
+| Agent 10 + `automation/`: Playwright form filling for approved packages, checkpoints, approval then autonomous mode, daily cap | Next phase |
+| Claude Code commands for tailoring/letters under the Pro plan (via the API) | With Agent 10 or Phase 8 |
 | Dashboard, applications, activity pages | Phase 8 |
 | Dockerfiles, full compose, deploy docs, Supabase setup doc | Phase 9 |
 | Playwright e2e in CI, pipeline/integration placeholders | Phase 10 (plus each phase's own tests) |
@@ -243,7 +260,7 @@ See ADR-011 and the README section. Pipeline: `JobPipeline` (`services/pipeline_
 
 ## 13. Next recommended phases
 
-1. **Phase 7:** application packages (tailored resume version, cover letter, answers) for shortlisted, high-scoring jobs, then approval-mode automation for Greenhouse/Lever/Ashby forms.
+1. **Browser automation (Agent 10):** fill Greenhouse/Lever/Ashby application forms from an **approved** package (resume file, cover letter, answers), stop for anything unanswered, record checkpoints, and submit only on explicit confirmation in approval mode.
 2. **Phase 8:** dashboard, applications, activity pages; learning from outcomes.
 3. **Phase 9:** containers and the deployment story (still personal use).
 4. **Phase 10:** end-to-end tests.

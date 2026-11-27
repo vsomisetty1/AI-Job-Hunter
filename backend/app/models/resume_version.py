@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import (
     EMPTY_ARRAY,
+    EMPTY_LIST,
     EMPTY_OBJECT,
     Base,
     TimestampMixin,
@@ -41,12 +42,27 @@ class ResumeVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         text_array(), nullable=False, server_default=EMPTY_ARRAY
     )
     change_summary: Mapped[str | None] = mapped_column(Text)
+    base_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resume_versions.id", ondelete="SET NULL")
+    )
+    changes: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, server_default=EMPTY_LIST)
+    tailoring: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=EMPTY_OBJECT
+    )
 
     resume = relationship("Resume", back_populates="versions")
 
     __table_args__ = (
         CheckConstraint("version_number >= 1", name="ck_resume_versions_version"),
         CheckConstraint("jsonb_typeof(content) = 'object'", name="ck_resume_versions_content_json"),
+        CheckConstraint("jsonb_typeof(changes) = 'array'", name="ck_resume_versions_changes_json"),
+        CheckConstraint(
+            "jsonb_typeof(tailoring) = 'object'", name="ck_resume_versions_tailoring_json"
+        ),
+        CheckConstraint(
+            "base_version_id IS NULL OR kind = 'tailored'",
+            name="ck_resume_versions_base_only_tailored",
+        ),
         CheckConstraint(
             "kind IN ('original', 'parsed', 'tailored')", name="ck_resume_versions_kind"
         ),
@@ -75,4 +91,9 @@ class ResumeVersion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("id", "job_id", name="uq_resume_versions_id_job"),
         Index("ix_resume_versions_job_id", "job_id"),
         Index("ix_resume_versions_resume_kind", "resume_id", "kind", text("version_number DESC")),
+        Index(
+            "ix_resume_versions_base_version_id",
+            "base_version_id",
+            postgresql_where=text("base_version_id IS NOT NULL"),
+        ),
     )

@@ -12,6 +12,8 @@ import { useJob, useJobRaw } from "@/hooks/useJobs";
 import { errorMessage } from "@/lib/api/client";
 import { formatDateTime, formatSalary, safeUrl } from "@/lib/format";
 
+import { GeneratePackage } from "@/components/packages/GeneratePackage";
+
 import { ScoreBadge } from "./ScoreBadge";
 import { FilterCard, ScoreCard } from "./ScoreDetails";
 
@@ -96,6 +98,7 @@ export function JobDetailView({ id }: { id: string }) {
           </Card>
         </div>
         <div className="space-y-6">
+          <GeneratePackage jobId={job.id} expired={job.status === "expired"} />
           <ScoreCard scores={job.scores} />
           <FilterCard result={job.filter_result} />
           <Card title="Details">

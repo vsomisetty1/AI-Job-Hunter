@@ -132,3 +132,29 @@ async def _insert(sql: str, **params: Any) -> uuid.UUID:
         value = (await conn.execute(text(sql), params)).scalar_one()
     assert isinstance(value, uuid.UUID)
     return value
+
+
+async def add_resume(profile_id: uuid.UUID, content: dict[str, Any]) -> tuple[uuid.UUID, uuid.UUID]:
+    """A primary, parsed resume for the profile: (resume id, parsed version id)."""
+    n = next(_counter)
+    resume_id = await _insert(
+        """
+        INSERT INTO resumes (profile_id, filename, file_type, storage_path, content_hash,
+                             parse_status, parse_method, parsed_at, is_primary)
+        VALUES (:profile_id, 'cv.pdf', 'pdf', :path, :hash, 'parsed', 'deterministic', now(), true)
+        RETURNING id
+        """,
+        profile_id=profile_id,
+        path=f"resumes/test-{n}.pdf",
+        hash=key("resume", str(n)),
+    )
+    version_id = await _insert(
+        """
+        INSERT INTO resume_versions (resume_id, kind, source, version_number, content)
+        VALUES (:resume_id, 'parsed', 'parser', 1, CAST(:content AS jsonb))
+        RETURNING id
+        """,
+        resume_id=resume_id,
+        content=json.dumps(content),
+    )
+    return resume_id, version_id

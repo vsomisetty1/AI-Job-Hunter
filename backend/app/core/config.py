@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Job Hunter API"
-    app_version: str = "0.6.0"
+    app_version: str = "0.7.0"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     log_json: bool | None = None  # default: JSON in production only

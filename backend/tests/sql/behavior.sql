@@ -32,7 +32,7 @@ $$ LANGUAGE plpgsql;
 
 DO $$
 DECLARE
-    p uuid; r uuid; c uuid; j1 uuid; j2 uuid; rv1 uuid; rv2 uuid; s1 uuid; cl1 uuid; a1 uuid;
+    p uuid; r uuid; c uuid; j1 uuid; j2 uuid; rv1 uuid; rv2 uuid; s1 uuid; cl1 uuid; a1 uuid; pk1 uuid;
     h text := repeat('a', 64);
     v jsonb;
     n int;
@@ -165,12 +165,35 @@ BEGIN
     PERFORM pg_temp.expect_error('UPDATE applications SET attempts = -1 WHERE id = ''{a}''', 'attempts non-negative', jsonb_build_object('a', a1::text));
     PERFORM pg_temp.expect_error('DELETE FROM jobs WHERE id = ''{j}''', 'job delete restricted while application exists', v);
 
+    -- ---------------------------------------------------------- 0005: packages
+    INSERT INTO application_packages (job_id, profile_id, status, generated_at, resume_version_id, cover_letter_id, job_score_id)
+        VALUES (j1, p, 'generated', now(), rv1, cl1, s1) RETURNING id INTO pk1;
+    v := jsonb_build_object('j', j1::text, 'j2', j2::text, 'p', p::text, 'rv2', rv2::text, 'pk', pk1::text, 'a', a1::text);
+    PERFORM pg_temp.expect_error('INSERT INTO application_packages (job_id, profile_id, version_number) VALUES (''{j}'', ''{p}'', 2)', 'one live package per job+profile', v);
+    PERFORM pg_temp.expect_error('INSERT INTO application_packages (job_id, profile_id, version_number, resume_version_id, status, error) VALUES (''{j}'', ''{p}'', 3, ''{rv2}'', ''failed'', ''x'')', 'package resume version must belong to the same job', v);
+    PERFORM pg_temp.expect_error('INSERT INTO application_packages (job_id, profile_id, version_number, status) VALUES (''{j2}'', ''{p}'', 1, ''generated'')', 'generated needs generated_at', v);
+    PERFORM pg_temp.expect_error('INSERT INTO application_packages (job_id, profile_id, version_number, status) VALUES (''{j2}'', ''{p}'', 1, ''failed'')', 'failed needs an error', v);
+    PERFORM pg_temp.expect_error('UPDATE application_packages SET status = ''approved'' WHERE id = ''{pk}''', 'approved needs approved_at', v);
+    PERFORM pg_temp.expect_error('UPDATE application_packages SET status = ''shipped'' WHERE id = ''{pk}''', 'package status enum', v);
+    INSERT INTO application_packages (job_id, profile_id, version_number, status, error) VALUES (j1, p, 2, 'failed', 'boom');
+    INSERT INTO application_answers (package_id, question, question_hash, answer, source, evidence)
+        VALUES (pk1, 'Sponsorship?', repeat('d', 64), 'No', 'settings', '[{"source": "settings", "fact": "requires_sponsorship=false"}]');
+    PERFORM pg_temp.expect_error('INSERT INTO application_answers (package_id, application_id, question, question_hash, answer, source) VALUES (''{pk}'', ''{a}'', ''Q'', repeat(''e'', 64), ''A'', ''rules'')', 'answer has exactly one owner', v);
+    PERFORM pg_temp.expect_error('INSERT INTO application_answers (question, question_hash, answer, source) VALUES (''Q'', repeat(''e'', 64), ''A'', ''rules'')', 'answer needs an owner', v);
+    PERFORM pg_temp.expect_error('INSERT INTO application_answers (package_id, question, question_hash, answer, source) VALUES (''{pk}'', ''Q'', repeat(''d'', 64), ''A'', ''rules'')', 'one answer per package question', v);
+    PERFORM pg_temp.expect_error('INSERT INTO application_answers (package_id, question, question_hash, answer, source) VALUES (''{pk}'', ''Q'', repeat(''f'', 64), '' '', ''rules'')', 'answer not blank', v);
+    PERFORM pg_temp.expect_error('UPDATE resume_versions SET changes = ''{}''::jsonb WHERE id = ''{rv2}''', 'changes must be an array', v);
+    PERFORM pg_temp.expect_error('UPDATE resume_versions SET base_version_id = ''{rv2}'' WHERE kind = ''parsed''', 'only tailored versions have a base', v);
+    PERFORM pg_temp.expect_error('INSERT INTO cover_letters (job_id, profile_id, content, version_number, method) VALUES (''{j}'', ''{p}'', ''Hi'', 2, ''magic'')', 'cover letter method enum', v);
+    INSERT INTO cover_letters (job_id, profile_id, content, version_number, word_count) VALUES (j1, p, 'Second draft', 2, 2);
+
     -- deleting an artifact nulls ONLY the artifact column (job_id stays)
     DELETE FROM resume_versions WHERE id = rv1;
     PERFORM pg_temp.expect_true((SELECT resume_version_id IS NULL AND job_id = j1 FROM applications WHERE id = a1), 'SET NULL (column) keeps job_id');
     DELETE FROM cover_letters WHERE id = cl1;
     DELETE FROM job_scores WHERE id = s1;
     PERFORM pg_temp.expect_true((SELECT cover_letter_id IS NULL AND job_score_id IS NULL AND job_id = j1 FROM applications WHERE id = a1), 'other artifacts null too');
+    PERFORM pg_temp.expect_true((SELECT resume_version_id IS NULL AND cover_letter_id IS NULL AND job_score_id IS NULL AND job_id = j1 FROM application_packages WHERE id = pk1), 'package artifacts null on delete');
 
     -- ---------------------------------------------------------- events / answers
     INSERT INTO application_events (application_id, event_type, to_status, actor) VALUES (a1, 'created', 'drafted', 'system');

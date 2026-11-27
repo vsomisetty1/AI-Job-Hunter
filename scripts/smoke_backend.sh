@@ -127,5 +127,41 @@ curl -fsS "$BASE/api/v1/scoring/summary" | grep -q '"last_run_status":"succeeded
   || fail "scoring run not recorded"
 echo "ok  filtering and scoring run succeeded"
 
+# Application packages (Phase 7): seed one job, generate, download, review, approve.
+JOB_ID=$(python - <<'PY'
+import os, uuid, psycopg2
+conn = psycopg2.connect(os.environ["DATABASE_URL"])
+with conn, conn.cursor() as cur:
+    slug = f"smoke-{uuid.uuid4().hex[:8]}"
+    cur.execute("INSERT INTO companies (name, source, slug) VALUES ('Smoke Co', 'greenhouse', %s) RETURNING id", (slug,))
+    company = cur.fetchone()[0]
+    cur.execute(
+        "INSERT INTO jobs (company_id, external_id, title, url, dedup_key, description, requirements) "
+        "VALUES (%s, '1', 'Senior Backend Engineer', %s, %s, 'Python and PostgreSQL on AWS.', "
+        "'[\"5+ years of Python\"]'::jsonb) RETURNING id",
+        (company, f"https://example.com/{slug}", uuid.uuid4().hex * 2),
+    )
+    print(cur.fetchone()[0])
+PY
+) || fail "could not seed a job"
+PKG=$(curl -fsS -X POST -H 'content-type: application/json' -d "{\"job_id\": \"$JOB_ID\"}" \
+  "$BASE/api/v1/packages") || fail "could not start package generation"
+PKG_ID=$(echo "$PKG" | python -c "import json,sys; print(json.load(sys.stdin)['package_id'])")
+for _ in $(seq 1 60); do
+  PKG_STATUS=$(curl -fsS "$BASE/api/v1/packages/$PKG_ID" | python -c "import json,sys; print(json.load(sys.stdin)['status'])")
+  [ "$PKG_STATUS" != "generating" ] && break
+  sleep 0.5
+done
+[ "$PKG_STATUS" = "generated" ] || fail "package generation ended as $PKG_STATUS"
+echo "ok  package generated"
+expect 200 GET "/api/v1/packages/$PKG_ID/files/resume.pdf"
+expect 200 GET "/api/v1/packages/$PKG_ID/files/resume.docx"
+expect 200 GET "/api/v1/packages/$PKG_ID/files/cover-letter.pdf"
+expect 200 GET "/api/v1/packages/$PKG_ID/files/original-resume.pdf"
+expect 200 GET "/api/v1/packages?status=generated"
+expect 200 POST "/api/v1/packages/$PKG_ID/review"
+expect 200 POST "/api/v1/packages/$PKG_ID/approve" '{"notes": "smoke"}'
+expect 409 POST "/api/v1/packages/$PKG_ID/approve"
+
 grep -q "Traceback" "$LOG" && fail "traceback in server log"
 echo "smoke test passed"

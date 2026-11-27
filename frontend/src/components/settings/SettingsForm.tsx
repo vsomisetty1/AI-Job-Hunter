@@ -43,6 +43,7 @@ interface FormState {
   keywords: string;
   claudeEnabled: boolean;
   claudeMinScore: string;
+  relocate: "" | "yes" | "no";
 }
 
 function toForm(s: Settings): FormState {
@@ -60,6 +61,7 @@ function toForm(s: Settings): FormState {
     keywords: s.excluded_keywords.join(", "),
     claudeEnabled: s.claude_scoring_enabled,
     claudeMinScore: String(s.claude_scoring_min_score),
+    relocate: s.willing_to_relocate == null ? "" : s.willing_to_relocate ? "yes" : "no",
   };
 }
 
@@ -81,6 +83,7 @@ export function settingsPatch(saved: Settings, f: FormState): SettingsUpdate {
     excluded_keywords: csvToList(f.keywords),
     claude_scoring_enabled: f.claudeEnabled,
     claude_scoring_min_score: toInt(f.claudeMinScore) ?? 0,
+    willing_to_relocate: f.relocate === "" ? null : f.relocate === "yes",
   };
   const patch: SettingsUpdate = {};
   for (const [key, value] of Object.entries(next) as [keyof SettingsUpdate, unknown][]) {
@@ -235,7 +238,22 @@ export function SettingsForm({
             onChange={(e) => set({ visaStatus: e.target.value })}
             placeholder="e.g. H-1B"
           />
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">Willing to relocate</span>
+            <select
+              className={SELECT}
+              value={form.relocate}
+              onChange={(e) => set({ relocate: e.target.value as FormState["relocate"] })}
+            >
+              <option value="">Not stated (answers ask you)</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </label>
         </div>
+        <p className="mt-2 text-xs text-zinc-500">
+          Application answers about sponsorship, authorization and relocation come from these fields.
+        </p>
       </Card>
 
       <Card title="Exclusions">

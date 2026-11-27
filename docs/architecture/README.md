@@ -17,3 +17,4 @@ ADR that supersedes the old one; don't rewrite history.
 | [009](ADR-009.md) | Job identity, deduplication and lifecycle |
 | [010](ADR-010.md) | Testing and CI strategy |
 | [011](ADR-011.md) | Rule-based filtering and scoring, with optional Claude on a shortlist (Phase 6) |
+| [012](ADR-012.md) | Application packages are built from facts and approved by a person (Phase 7) |

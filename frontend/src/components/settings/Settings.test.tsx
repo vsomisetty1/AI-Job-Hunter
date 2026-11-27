@@ -27,12 +27,14 @@ describe("settingsPatch", () => {
       keywords: "",
       claudeEnabled: false,
       claudeMinScore: "60",
+      relocate: "yes",
     });
     expect(patch).toEqual({
       preferred_locations: ["San Francisco", "NYC"],
       salary_min: 150000,
       requires_sponsorship: true,
       excluded_companies: ["Acme", "Globex"],
+      willing_to_relocate: true,
     });
   });
 });

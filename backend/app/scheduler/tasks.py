@@ -15,6 +15,7 @@ from app.models.agent_run import AgentRun
 from app.models.candidate_profile import CandidateProfile
 from app.models.discovery_run import DiscoveryRun
 from app.models.llm_cache_entry import LLMCacheEntry
+from app.repositories.package_repository import PackageRepository
 from app.repositories.settings_repository import SettingsRepository
 from app.scheduler.scheduler import SchedulerService
 from app.services.discovery_service import DiscoveryInProgressError
@@ -46,7 +47,9 @@ async def recover_interrupted_work() -> dict[str, int]:
             .where(DiscoveryRun.status == "running")
             .values(status="cancelled", error=INTERRUPTED, finished_at=func.clock_timestamp())
         )
+        packages = await PackageRepository(session).mark_interrupted(INTERRUPTED)
     result = {
+        "packages": packages,
         "profiles": profiles.rowcount,  # type: ignore[attr-defined]
         "agent_runs": runs.rowcount,  # type: ignore[attr-defined]
         "discovery_runs": discovery.rowcount,  # type: ignore[attr-defined]

@@ -433,6 +433,7 @@ async def test_restart_recovers_interrupted_work(db_app, client_for):
             )
             await conn.execute(text("INSERT INTO discovery_runs (trigger) VALUES ('manual')"))
         assert await recover_interrupted_work() == {
+            "packages": 0,  # covered in test_packages.py
             "profiles": 1,
             "agent_runs": 1,
             "discovery_runs": 1,

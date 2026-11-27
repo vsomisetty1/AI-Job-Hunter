@@ -58,6 +58,17 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   run/summary endpoints, settings and profile edits re-scoring in the background).
   `tests/fixtures/jobs.py` seeds companies, jobs, profiles and settings. Migration 0004 is
   covered both ways in `test_migrations.py`. The smoke script also runs a scoring pass.
+- Phase 7 (application packages): `tests/unit/test_resume_tailoring.py` (truthfulness guard,
+  deterministic tailoring, change log, headline facts, a randomized truthfulness property
+  check, Claude rewordings accepted or dropped), `test_resume_rendering.py` (PDF text in
+  reading order via pdfplumber, no unreadable glyphs, escaping, DOCX bullets, letters),
+  `test_cover_letters.py` (150–300 words, quoted evidence, no missing skills, Claude letter
+  checks), `test_application_answers.py` (every question type, evidence, review flags, polish
+  checks); `tests/integration/test_packages.py` (full generation through the API with files,
+  one live package, missing inputs, review/approve/submit with the applications row and events,
+  reject/regenerate/supersede, interrupted generation, Claude path with rejected inventions,
+  no-key fallback). Migration 0005 is covered both ways; the smoke script generates, downloads,
+  reviews and approves a package on the real server. Frontend: `Packages.test.tsx`.
 - Background re-scoring on settings/profile changes is off in the default test app
   (`rescore_on_change=False`, like the scheduler), because the rolled-back `db_app`
   shares one connection; the tests that cover it use the live-pool app.

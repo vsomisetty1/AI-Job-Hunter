@@ -501,9 +501,135 @@ export interface Settings {
   discovery_enabled: boolean;
   claude_scoring_enabled: boolean;
   claude_scoring_min_score: number;
+  willing_to_relocate: boolean | null;
   extra: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
 
 export type SettingsUpdate = Partial<Omit<Settings, "created_at" | "updated_at">>;
+
+// --------------------------------------------- Phase 7: application packages
+export type PackageStatus =
+  | "generating"
+  | "generated"
+  | "reviewed"
+  | "approved"
+  | "rejected"
+  | "submitted"
+  | "failed"
+  | "superseded";
+
+export interface ResumeChange {
+  section: string;
+  item: string | null;
+  field: string;
+  before: unknown;
+  after: unknown;
+  reason: string;
+  at: string;
+}
+
+export interface TailoredResume {
+  id: string;
+  resume_id: string;
+  version_number: number;
+  base_version_id: string | null;
+  content: ParsedResume;
+  changes: ResumeChange[];
+  tailoring: {
+    method?: "rules" | "claude";
+    model?: string | null;
+    matched_skills?: string[];
+    missing_skills?: string[];
+    notes?: string[];
+    rejected_rewrites?: { item: string; text: string; problems: string[] }[];
+  };
+  ats_keywords: string[];
+  change_summary: string | null;
+  has_pdf: boolean;
+  has_docx: boolean;
+  created_at: string;
+}
+
+export interface CoverLetter {
+  id: string;
+  version_number: number;
+  content: string;
+  word_count: number;
+  method: "rules" | "claude";
+  model: string | null;
+  generation: { facts?: string[]; notes?: string[]; [key: string]: unknown };
+  has_pdf: boolean;
+  has_docx: boolean;
+  created_at: string;
+}
+
+export interface PackageAnswer {
+  id: string;
+  question: string;
+  question_key: string | null;
+  answer: string;
+  source: "profile" | "settings" | "rules" | "llm" | "user";
+  confidence: number | null;
+  needs_review: boolean;
+  evidence: { source: string; fact: string }[];
+  updated_at: string;
+}
+
+export interface PackageSummary {
+  id: string;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  version_number: number;
+  status: PackageStatus;
+  score: number | null;
+  score_method: string | null;
+  answers_needing_review: number;
+  error: string | null;
+  generated_at: string | null;
+  reviewed_at: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PackageDetail extends PackageSummary {
+  job: JobSummary;
+  score_snapshot: {
+    overall?: number;
+    method?: string;
+    matched_skills?: string[];
+    missing_skills?: string[];
+    rationale?: string | null;
+    [key: string]: unknown;
+  };
+  generation: {
+    use_llm?: boolean;
+    llm_used?: boolean;
+    tailoring_notes?: string[];
+    cover_letter_notes?: string[];
+    answer_notes?: string[];
+    [key: string]: unknown;
+  };
+  review_notes: string | null;
+  rejection_reason: string | null;
+  application_id: string | null;
+  base_resume: ParsedResume | null;
+  base_resume_version_id: string | null;
+  tailored_resume: TailoredResume | null;
+  cover_letter: CoverLetter | null;
+  answers: PackageAnswer[];
+}
+
+export interface PackageStarted {
+  package_id: string;
+  task_id: string;
+  status: string;
+  detail: string;
+}
+
+export type PackageDoc = "resume" | "cover-letter" | "original-resume";

@@ -193,7 +193,7 @@ Revisit after Phase 7, starting with discovery only (see ADR-008).
 | Phase | Content |
 |---|---|
 | 6 | Done: Agent 4 rule filtering; Agent 5 scoring (deterministic baseline, optional Claude for a shortlist); scores in the Jobs UI; Settings page (Claude Code command path still to do) |
-| 7 | Application packages (Agents 6–9: tailored resume versions, generated resumes, cover letters, answers); Agent 10 Playwright automation for Greenhouse/Lever/Ashby, approval mode then autonomous mode with threshold and daily cap |
+| 7 | Done: application packages (Agents 6–9: tailored resume versions with change log, PDF/DOCX, cover letters, answers) with an approval workflow. Next: Agent 10 Playwright automation for Greenhouse/Lever/Ashby from approved packages, approval mode then autonomous mode with threshold and daily cap |
 | 8 | Dashboard, applications, activity pages; learning insights (`learning/`) |
 | 9 | Docker images, full compose, deployment and Supabase docs (personal deployment; real auth before anything public) |
 | 10 | End-to-end tests (Playwright) in CI |

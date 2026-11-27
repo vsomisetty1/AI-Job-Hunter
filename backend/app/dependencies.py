@@ -22,6 +22,7 @@ from app.scheduler.scheduler import SchedulerService
 from app.services.company_service import CompanyService
 from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
+from app.services.package_service import PackageGenerator, PackageWorkflow
 from app.services.pipeline_service import JobPipeline
 from app.services.profile_service import ProfileService
 from app.services.resume_processing import ResumeProcessor
@@ -111,6 +112,19 @@ def get_scoring(request: Request) -> ScoringService:
 
 PipelineDep = Annotated[JobPipeline, Depends(get_pipeline)]
 ScoringDep = Annotated[ScoringService, Depends(get_scoring)]
+
+
+# ------------------------------------------------------------ Phase 7 services
+def get_package_generator(request: Request) -> PackageGenerator:
+    return cast(PackageGenerator, request.app.state.packages)
+
+
+def get_package_workflow(request: Request, db: DbSession) -> PackageWorkflow:
+    return PackageWorkflow(db, request.app.state.storage)
+
+
+PackageGeneratorDep = Annotated[PackageGenerator, Depends(get_package_generator)]
+PackageWorkflowDep = Annotated[PackageWorkflow, Depends(get_package_workflow)]
 
 
 def get_company_service(db: DbSession, connectors: ConnectorsDep) -> CompanyService:

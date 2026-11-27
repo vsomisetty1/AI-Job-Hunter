@@ -267,3 +267,52 @@ def test_0004_keeps_existing_claude_scores_and_downgrades_cleanly(db):
         rows = conn.execute(text("SELECT prompt_version FROM job_scores")).all()
         assert [tuple(r) for r in rows] == [("v2",)]  # the rule-based row is gone
     command.upgrade(cfg, "head")
+
+
+def test_0005_downgrade_keeps_the_newest_cover_letter_and_drops_packages(db):
+    eng, cfg = db
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        j = conn.execute(
+            text(
+                "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                "VALUES (:c, '1', 'Eng', 'https://x.test/1', :h) RETURNING id"
+            ),
+            {"c": c, "h": "b" * 64},
+        ).scalar()
+        for n in (1, 2):
+            conn.execute(
+                text(
+                    "INSERT INTO cover_letters (job_id, profile_id, content, version_number) "
+                    "VALUES (:j, :p, :t, :n)"
+                ),
+                {"j": j, "p": p, "t": f"Draft {n}", "n": n},
+            )
+        pkg = conn.execute(
+            text(
+                "INSERT INTO application_packages (job_id, profile_id) VALUES (:j, :p) RETURNING id"
+            ),
+            {"j": j, "p": p},
+        ).scalar()
+        conn.execute(
+            text(
+                "INSERT INTO application_answers (package_id, question, question_hash, answer, "
+                "source) VALUES (:k, 'Q', :h, 'A', 'rules')"
+            ),
+            {"k": pkg, "h": "c" * 64},
+        )
+    command.downgrade(cfg, "0004")
+    with eng.connect() as conn:
+        assert [tuple(r) for r in conn.execute(text("SELECT content FROM cover_letters"))] == [
+            ("Draft 2",)
+        ]
+        assert conn.execute(text("SELECT count(*) FROM application_answers")).scalar() == 0
+        assert "application_packages" not in inspect(eng).get_table_names()
+    command.upgrade(cfg, "head")

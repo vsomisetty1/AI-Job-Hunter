@@ -82,6 +82,7 @@ class SettingsRead(ORMModel):
     discovery_enabled: bool
     claude_scoring_enabled: bool
     claude_scoring_min_score: int
+    willing_to_relocate: bool | None
     extra: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -107,6 +108,8 @@ class SettingsUpdate(APIModel):
     discovery_enabled: bool | None = None
     claude_scoring_enabled: bool | None = None
     claude_scoring_min_score: int | None = Field(default=None, ge=0, le=100)
+    # null = not stated (relocation answers are then flagged for review)
+    willing_to_relocate: bool | None = None
     extra: dict[str, Any] | None = None
 
     @field_validator("preferred_locations", "excluded_companies", "excluded_keywords")

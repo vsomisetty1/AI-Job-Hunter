@@ -137,6 +137,9 @@ FROZEN_MIGRATION_SHA256 = {
     "0004_filtering_scoring.sql": (
         "e6aec79545965bf6878c654617915042b7fe9a0c1a593381a345c95b7ac18752"
     ),
+    "0005_application_packages.sql": (
+        "28e709e7961ab5b562e941ee3acb3e61c763716e9a18a784e795ef86d4c8e78c"
+    ),
 }
 
 

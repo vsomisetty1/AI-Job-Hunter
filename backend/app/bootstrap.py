@@ -7,6 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agents.agent_0_resume_parser import ResumeParserAgent
 from app.agents.agent_1_profile_inference import ProfileInferenceAgent
+from app.agents.agent_6_resume_tailoring import ResumeTailoringAgent
+from app.agents.agent_8_cover_letters import CoverLetterAgent
+from app.agents.agent_9_application_answers import ApplicationAnswersAgent
 from app.connectors.http import HttpFetcher, RetryPolicy
 from app.connectors.registry import build_connectors
 from app.core.config import Settings
@@ -15,6 +18,7 @@ from app.llm.cache import LLMCache
 from app.llm.client import ClaudeClient
 from app.services.discovery_service import DiscoveryService
 from app.services.filtering_service import FilteringService
+from app.services.package_service import PackageGenerator
 from app.services.pipeline_service import JobPipeline
 from app.services.resume_processing import ResumeProcessor
 from app.services.scoring_service import ScoringService
@@ -58,6 +62,14 @@ def init_services(
     app.state.scoring = ScoringService(settings, llm, sessionmaker)
     app.state.pipeline = JobPipeline(
         app.state.discovery, app.state.filtering, app.state.scoring, sessionmaker
+    )
+    # Phase 7: application packages (Agents 6-9).
+    app.state.packages = PackageGenerator(
+        sessionmaker,
+        storage,
+        ResumeTailoringAgent(llm, sessionmaker),
+        CoverLetterAgent(llm, sessionmaker),
+        ApplicationAnswersAgent(llm, sessionmaker),
     )
     # A new or rebuilt profile changes every score.
     if settings.rescore_on_change:
