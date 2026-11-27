@@ -158,6 +158,16 @@ Claude):
 - Personal data from a real resume never goes into the repository: validation output lives
   in the git-ignored `validation-output/`.
 
+**Learning rules (Phase 9, ADR-015)** for any analysis or advice shown to the user:
+- Use only recorded data (the user's applications, packages and outcomes). Never infer
+  facts such as a company's industry; let the user set them.
+- State a difference only when it passes the gates in `learning/insights.py` (group sizes,
+  minimum effect, Fisher exact + Holm); show the counts and the test with it. With too
+  little data, say so.
+- Recommendations link to where the user can act; never change settings, profile or
+  applications automatically, and never suggest adding a skill except "if you have it".
+- Outcome milestones are derived from interview events: never set them directly.
+
 **Automation rules (Phase 8, ADR-014)** for anything that touches an application form:
 - Approval mode only: nothing is submitted without the user's explicit confirmation; the
   database enforces it (`mode` = APPROVAL_MODE, `confirmed_at` before submitting). Do not
@@ -220,7 +230,8 @@ Revisit after Phase 7, starting with discovery only (see ADR-008).
 | 7 | Done: application packages (Agents 6–9: tailored resume versions with change log, PDF/DOCX, cover letters, answers) with an approval workflow |
 | MVP validation | Done: validated on a real resume and 5.4k real postings before automation (see `docs/MVP_VALIDATION.md`): parsing, relevance-ranked tailoring, specific and honest letters and answers, data lifecycle (ADR-013), faster scoring, expired jobs cannot be approved |
 | 8 | Done: application automation in **approval mode** (Agent 10, Playwright): fill approved packages into real Greenhouse/Lever/Ashby forms, review screen, confirmed submit, checkpoints and recovery, Applications UI (ADR-014, `docs/AUTOMATION_VALIDATION.md`) |
-| Next | Autonomous mode (threshold, daily cap) only after approval mode is validated in real use; dashboard, activity, learning insights (`learning/`) |
+| 9 | Done: learning and insights: interview and outcome tracking, Learning Agent (daily snapshots), analytics (rates with intervals, funnel, score accuracy, skill correlations, company / board / resume / package-style), statistically gated insights, recommendations; dashboard and insights pages (ADR-015) |
+| Next | Autonomous mode (threshold, daily cap) only after approval mode is validated in real use and the insights show what converts; agent activity page |
 | 9 | Docker images, full compose, deployment and Supabase docs (personal deployment; real auth before anything public) |
 | 10 | End-to-end tests (Playwright) in CI |
 | Later | Workday discovery; more providers; full-text search; optional multi-user mode (Supabase Auth) |

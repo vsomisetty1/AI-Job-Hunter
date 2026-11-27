@@ -17,6 +17,7 @@ from tests.conftest import BACKEND_DIR
 # Emptied around each test, in FK order (jobs before companies).
 USER_TABLES = (
     "candidate_profiles", "agent_runs", "llm_cache_entries", "discovery_runs", "jobs", "companies",
+    "learning_snapshots", "recommendation_states",
 )  # fmt: skip
 
 

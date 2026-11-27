@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import EMPTY_OBJECT, Base, CreatedAtMixin, UUIDPrimaryKeyMixin
 
-_STATUSES = "('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer')"
+_STATUSES = "('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer', 'withdrawn')"
 
 
 class ApplicationEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -31,7 +31,8 @@ class ApplicationEvent(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __table_args__ = (
         CheckConstraint(
             "event_type IN ('created', 'status_changed', 'approved', 'automation_started', "
-            "'checkpoint', 'retry', 'needs_manual', 'failed', 'submitted', 'note')",
+            "'checkpoint', 'retry', 'needs_manual', 'failed', 'submitted', 'note', "
+            "'outcome_recorded', 'outcome_updated', 'outcome_removed')",
             name="ck_application_events_type",
         ),
         CheckConstraint("actor IN ('system', 'user', 'agent')", name="ck_application_events_actor"),

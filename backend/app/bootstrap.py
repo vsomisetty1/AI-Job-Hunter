@@ -16,6 +16,7 @@ from app.connectors.http import HttpFetcher, RetryPolicy
 from app.connectors.registry import build_connectors
 from app.core.config import Settings
 from app.documents.scanner import VirusScanner, build_scanner
+from app.learning.service import LearningService
 from app.llm.cache import LLMCache
 from app.llm.client import ClaudeClient
 from app.services.automation_service import AutomationService
@@ -93,5 +94,6 @@ def init_services(
         registry,
         ApplicationAgent(settings, browser, registry, sessionmaker=sessionmaker),
     )
+    app.state.learning = LearningService(sessionmaker)
     if settings.rescore_on_change:
         app.state.processor.after_profile = app.state.pipeline.rescore

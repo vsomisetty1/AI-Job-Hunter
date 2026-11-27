@@ -793,3 +793,220 @@ export interface AutomationStatus {
   max_sessions: number;
   session_idle_minutes: number;
 }
+
+// ---------------------------------------------------------------- learning & insights (Phase 9)
+export type InterviewStage =
+  | "recruiter_response"
+  | "recruiter_screen"
+  | "phone_screen"
+  | "technical_interview"
+  | "hiring_manager_interview"
+  | "onsite"
+  | "final_round"
+  | "offer"
+  | "rejection"
+  | "withdrawal";
+
+export type EventStatus = "scheduled" | "completed" | "cancelled" | "no_show";
+export type ApplicationStatus = "drafted" | "ready" | "submitted" | "interview" | "rejected" | "offer" | "withdrawn";
+
+export interface InterviewEvent {
+  id: string;
+  application_id: string;
+  stage: InterviewStage;
+  status: EventStatus;
+  occurred_at: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineItem {
+  application_id: string;
+  job_id: string;
+  job_title: string;
+  company_id: string;
+  company_name: string;
+  industry: string | null;
+  platform: string;
+  package_id: string | null;
+  status: ApplicationStatus;
+  current_stage: InterviewStage | null;
+  next_scheduled: InterviewEvent | null;
+  submitted_at: string | null;
+  responded_at: string | null;
+  first_interview_at: string | null;
+  offer_at: string | null;
+  rejected_at: string | null;
+  withdrawn_at: string | null;
+  days_since_submitted: number | null;
+  events: number;
+}
+
+export interface TimelineEntry {
+  at: string;
+  kind: string;
+  label: string;
+  application_id: string | null;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  status: EventStatus | null;
+  detail: Record<string, unknown>;
+}
+
+export interface ApplicationOutcomes extends PipelineItem {
+  interview_events: InterviewEvent[];
+  timeline: TimelineEntry[];
+}
+
+/** A rate with its 95 % Wilson interval. */
+export interface RateStat {
+  k: number;
+  n: number;
+  rate: number | null;
+  low: number | null;
+  high: number | null;
+}
+
+export interface SegmentStat {
+  key: string;
+  label: string;
+  packages: number;
+  submitted: number;
+  responded: number;
+  interviewed: number;
+  offered: number;
+  rejected: number;
+  response_rate: RateStat;
+  interview_rate: RateStat;
+  offer_rate: RateStat;
+  median_days_to_response: number | null;
+}
+
+export interface FunnelStep {
+  stage: string;
+  label: string;
+  count: number;
+  from_previous: RateStat | null;
+  from_start: RateStat | null;
+}
+
+export interface ScorePrediction {
+  auc: number | null;
+  positives: number;
+  negatives: number;
+  mean_score_positive: number | null;
+  mean_score_negative: number | null;
+  enough_data: boolean;
+  verdict: string;
+}
+
+export interface AnalyticsOverview {
+  packages: number;
+  approved: number;
+  submitted: number;
+  responded: number;
+  interviewed: number;
+  offered: number;
+  rejected: number;
+  withdrawn: number;
+  awaiting_reply: number;
+  no_reply_after_14_days: number;
+  response_rate: RateStat;
+  interview_rate: RateStat;
+  offer_rate: RateStat;
+  approval_rate: RateStat;
+  submission_rate: RateStat;
+  interview_to_offer: RateStat;
+  median_days_to_response: number | null;
+  enough_data: boolean;
+  min_sample: number;
+}
+
+export interface SkillCorrelation {
+  skill: string;
+  asked: number;
+  have: RateStat;
+  lack: RateStat;
+  lift: number | null;
+  p_value: number | null;
+}
+
+export interface AnalyticsSummary {
+  computed_at: string;
+  overview: AnalyticsOverview;
+  funnel: FunnelStep[];
+  score_accuracy: {
+    scored_submitted: number;
+    bands: SegmentStat[];
+    interviewed: ScorePrediction;
+    responded: ScorePrediction;
+  };
+  skill_correlations: SkillCorrelation[];
+  by_family: SegmentStat[];
+  by_remote: SegmentStat[];
+  by_score_band: SegmentStat[];
+}
+
+export interface CompanyStat extends SegmentStat {
+  company_id: string;
+  industry: string | null;
+  platform: string | null;
+}
+
+export interface BoardStat extends SegmentStat {
+  funnel: FunnelStep[];
+}
+
+export interface ResumeAnalytics {
+  resume_variant: SegmentStat[];
+  tailoring: SegmentStat[];
+  cover_letter: SegmentStat[];
+  cover_letter_method: SegmentStat[];
+  regenerated: SegmentStat[];
+  applied_via: SegmentStat[];
+}
+
+export interface Insight {
+  key: string;
+  kind: "comparison" | "threshold" | "skill" | "score" | "fact";
+  title: string;
+  detail: string;
+  confidence: "high" | "medium" | "low" | "fact";
+  direction: "better" | "worse" | "neutral";
+  dimension: string | null;
+  segment: string | null;
+  outcome: string | null;
+  evidence: Record<string, unknown>;
+}
+
+export interface InsightsReport {
+  status: "ok" | "insufficient_data";
+  message: string;
+  comparisons_tested: number;
+  insights: Insight[];
+}
+
+export interface Recommendation {
+  key: string;
+  category: "targeting" | "profile" | "process" | "data";
+  priority: "high" | "medium" | "low";
+  title: string;
+  rationale: string;
+  action_label: string;
+  action_href: string;
+  based_on: string[];
+  evidence: Record<string, unknown>;
+  state: "dismissed" | "done" | null;
+}
+
+export interface HistoryPoint {
+  at: string;
+  submitted: number | null;
+  response_rate: number | null;
+  interview_rate: number | null;
+  offer_rate: number | null;
+  insights: number;
+  recommendations: number;
+}

@@ -16,6 +16,7 @@ REQUIRED_TABLES = {
 NO_CREATED_AT = {"agent_runs", "discovery_runs"}  # use started_at
 IMMUTABLE = {  # append-only rows: no updated_at, so no trigger needed
     "application_events", "agent_runs", "llm_cache_entries", "automation_logs",
+    "learning_snapshots",
 }  # fmt: skip
 
 
@@ -142,6 +143,9 @@ FROZEN_MIGRATION_SHA256 = {
     ),
     "0006_application_automation.sql": (
         "4e44bf5c2d364388bdb724127f4e9af540e289b0f7cbd02db5dba7fcff58d83a"
+    ),
+    "0007_learning_insights.sql": (
+        "f63b8ea20eb1cae831668fba908f8437d276def372c2e8b60212c9f9b762bf1b"
     ),
 }
 

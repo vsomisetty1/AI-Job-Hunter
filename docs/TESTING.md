@@ -98,6 +98,20 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   locally, `AUTOMATION_BROWSER_PATH` can point at another Chromium. Live forms are checked
   by hand in review mode: `scripts/validate_automation.py` (see
   [AUTOMATION_VALIDATION.md](AUTOMATION_VALIDATION.md)).
+- Phase 9 (learning and insights): `tests/unit/test_learning.py` (Wilson, Fisher exact
+  against known values, Holm, AUC and its Mann-Whitney p-value; job families; milestone and
+  status derivation from interview events; funnel, overview, score accuracy verdicts and
+  their gates, skill correlations; the insights engine on synthetic records with KNOWN
+  effects: finds a real score-threshold effect with its numbers, says nothing about noise
+  or too little data, does not mirror A-vs-B comparisons; recommendations from insights and
+  counts, data-hygiene recommendations, nothing from nothing);
+  `tests/integration/test_insights_api.py` (packages generated, approved and marked applied
+  the normal way, outcomes recorded through the API: pipeline, validation, edit, delete and
+  recompute, timeline, application events, withdrawal, company industry; every analytics
+  endpoint against hand-computed numbers; a board insight with its counts; recommendation
+  dismiss/restore; Learning Agent snapshots stored only when the data changed); migration
+  test for 0007 rules and downgrade; frontend `Insights.test.tsx`. The smoke script records
+  an outcome and calls every analytics endpoint.
 - Background re-scoring on settings/profile changes is off in the default test app
   (`rescore_on_change=False`, like the scheduler), because the rolled-back `db_app`
   shares one connection; the tests that cover it use the live-pool app.

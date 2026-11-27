@@ -14,6 +14,7 @@ from app.models.cover_letter import CoverLetter
 from app.models.discovery_run import DiscoveryRun
 from app.models.job import Job
 from app.models.job_score import JobScore
+from app.models.learning import InterviewEvent, LearningSnapshot, RecommendationState
 from app.models.llm_cache_entry import LLMCacheEntry
 from app.models.resume import Resume
 from app.models.resume_version import ResumeVersion
@@ -33,9 +34,12 @@ __all__ = [
     "Company",
     "CoverLetter",
     "DiscoveryRun",
+    "InterviewEvent",
     "Job",
     "JobScore",
     "LLMCacheEntry",
+    "LearningSnapshot",
+    "RecommendationState",
     "Resume",
     "ResumeVersion",
     "Setting",

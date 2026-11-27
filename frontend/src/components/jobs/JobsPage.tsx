@@ -2,6 +2,7 @@
 
 // Search and browse discovered jobs.
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/ui/Alert";
@@ -19,12 +20,16 @@ const SELECT =
   "rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950";
 
 export function JobsPage() {
-  const [text, setText] = useState("");
+  // Links from recommendations pre-set filters: /jobs?min_score=85&q=backend
+  const params = useSearchParams();
+  const linkedMin = Number(params.get("min_score"));
+  const [text, setText] = useState(params.get("q") ?? "");
   const [filters, setFilters] = useState<JobSearch>({
     sort: "score",
     filter_state: "passed",
     offset: 0,
     limit: PAGE_SIZE,
+    ...(linkedMin > 0 && linkedMin <= 100 ? { min_score: linkedMin } : {}),
   });
 
   // Debounce typing so every keystroke is not a request.

@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, update
 
 from app.core.config import Settings
 from app.core.database import session_scope
+from app.learning.service import LearningService
 from app.models.agent_run import AgentRun
 from app.models.candidate_profile import CandidateProfile
 from app.models.discovery_run import DiscoveryRun
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 DISCOVERY_JOB_ID = "job_discovery"
 MAINTENANCE_JOB_ID = "maintenance"
 AUTOMATION_SWEEP_JOB_ID = "automation_idle_sweep"
+LEARNING_JOB_ID = "learning"
 INTERRUPTED = "Interrupted by a restart; run it again."
 
 
@@ -108,6 +110,7 @@ def register_jobs(
     pipeline: JobPipeline,
     lifecycle: LifecycleService | None = None,
     automation: AutomationService | None = None,
+    learning: LearningService | None = None,
 ) -> None:
     async def discover() -> dict[str, object]:
         return await run_discovery_cycle(pipeline)
@@ -147,4 +150,16 @@ def register_jobs(
             sweep,
             minutes=5,
             name="Close application forms left open past the idle timeout",
+        )
+
+    if learning is not None:
+
+        async def learn() -> dict[str, object]:
+            return dict(await learning.refresh("scheduled"))
+
+        scheduler.add_interval_job(
+            LEARNING_JOB_ID,
+            learn,
+            minutes=24 * 60,
+            name="Learning Agent: analyse outcomes, update insights and recommendations",
         )

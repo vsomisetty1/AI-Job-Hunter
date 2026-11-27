@@ -173,6 +173,22 @@ expect 200 GET "/api/v1/automation/submissions"
 expect 200 GET "/api/v1/automation/logs"
 expect 422 POST "/api/v1/automation/submissions/00000000-0000-0000-0000-000000000000/submit" '{}'
 expect 404 POST "/api/v1/automation/submissions" '{"package_id": "00000000-0000-0000-0000-000000000000"}'
+# Learning and insights (Phase 9): outcomes, analytics, the Learning Agent.
+APP_ID=$(curl -s "$BASE/api/v1/packages/$PKG_ID" | python3 -c "import json,sys; print(json.load(sys.stdin)['application_id'])")
+expect 200 POST "/api/v1/packages/$PKG_ID/mark-submitted"
+expect 201 POST "/api/v1/applications/$APP_ID/events" '{"stage": "recruiter_response", "occurred_at": "2026-01-02T10:00:00Z"}'
+expect 422 POST "/api/v1/applications/$APP_ID/events" '{"stage": "offer", "status": "scheduled", "occurred_at": "2026-01-02T10:00:00Z"}'
+expect 200 GET "/api/v1/applications"
+expect 200 GET "/api/v1/applications/$APP_ID"
+expect 200 GET "/api/v1/applications/timeline"
+expect 200 GET "/api/v1/insights/summary"
+expect 200 GET "/api/v1/insights"
+expect 200 GET "/api/v1/insights/companies"
+expect 200 GET "/api/v1/insights/boards"
+expect 200 GET "/api/v1/insights/resumes"
+expect 200 GET "/api/v1/insights/recommendations"
+expect 200 POST "/api/v1/insights/refresh"
+expect 200 GET "/api/v1/insights/history"
 
 grep -q "Traceback" "$LOG" && fail "traceback in server log"
 echo "smoke test passed"

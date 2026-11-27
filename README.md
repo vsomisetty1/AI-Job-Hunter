@@ -23,13 +23,14 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | 3 | Backend foundation | Done |
 | 4 | Resume intelligence (Agents 0, 1; resume versioning) | Done |
 | 5 | Job discovery (Agents 2, 3; Agent 4 filtering moves to Phase 6) | Done |
-| 6 | Rule filtering + scoring (Agents 4, 5; optional Claude scoring; learning moves to Phase 8) | Done |
+| 6 | Rule filtering + scoring (Agents 4, 5; optional Claude scoring; learning moved to Phase 9) | Done |
 | 7 | Application packages + approval workflow (Agents 6, 7, 8, 9) | Done |
 | MVP | Validation on a real resume and real jobs | Done |
 | 8 | Application automation, approval mode (Agent 10, Playwright) | Done |
-| 8b | Autonomous mode (after approval mode is validated); dashboard and insights | Pending |
-| 9 | Deployment | Pending |
-| 10 | Testing | Pending |
+| 9 | Learning and insights (interview and outcome tracking, Learning Agent, analytics, recommendations) | Done |
+| Next | Autonomous mode (only after approval mode is validated in real use) | Pending |
+| Later | Deployment (containers, docs) | Pending |
+| Later | End-to-end testing through the frontend | Pending |
 
 Files containing `PLACEHOLDER - implemented in PHASE N` are stubs filled in by that phase.
 
@@ -217,6 +218,35 @@ API: `GET /api/v1/automation/{status,queue}`, `POST /api/v1/automation/submissio
 `POST .../{id}/retry|cancel`, `POST .../{id}/submit` with `{"confirm": true}`,
 `GET .../{id}/screenshots/{n}`, `GET /api/v1/automation/logs?submission_id=&level=`.
 
+## Learning and insights (Phase 9)
+
+**Interviews** (`/insights/pipeline`): every submitted application by where it stands.
+Record what happened: a recruiter response, recruiter / phone screens, technical, hiring
+manager, onsite and final rounds (scheduled, completed, cancelled or no-show), an offer, a
+rejection or a withdrawal. The application's milestones and status follow from those
+events; edit or delete one and everything recomputes. The **outcome timeline** shows
+packages generated and approved, submissions and every event.
+
+**Dashboard** (`/`): response, interview and offer rates with 95 % intervals, the funnel
+(generated -> approved -> submitted -> response -> interview -> offer), score accuracy (does
+the job score predict interviews?), skill correlations, results by job family and workplace,
+and the trend. **Companies**, **Resume performance** (resume versions, cover letter,
+tailoring, package versions, how you applied) and **Job boards** break the same rates down.
+Set a company's industry there to compare industries; the app never guesses it.
+
+**Insights and recommendations** (`/insights/recommendations`) come only from your data and
+only when they hold up: enough applications per group, a real difference, and Fisher's exact
+test corrected for the number of comparisons. Each shows its counts. Recommendations (score
+threshold, job families, industries, boards, cover letters, skills to add *if you have
+them*, outcomes to record) link to where to act; nothing is changed for you. The **Learning
+Agent** runs daily (or "Run the Learning Agent") and keeps a snapshot history. See ADR-015.
+
+API: `GET /api/v1/applications`, `GET /api/v1/applications/{id}`,
+`POST|PATCH|DELETE /api/v1/applications/{id}/events[/{event_id}]`,
+`GET /api/v1/applications/timeline`, `GET /api/v1/insights{,/summary,/companies,/boards,/resumes,/recommendations,/history}`,
+`PUT /api/v1/insights/recommendations/{key}/state`, `POST /api/v1/insights/refresh`,
+`PATCH /api/v1/companies/{id}` with `industry`.
+
 ## Run it locally
 
 Needs Docker, Python 3.14 and Node 26.
@@ -237,7 +267,7 @@ python -m app             # binds BACKEND_HOST:BACKEND_PORT, one worker
 
 - Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
 - Probes: `GET /health` (liveness), `GET /health/ready` (database + migrations + scheduler)
-- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/scoring`, `/api/v1/packages`, `/api/v1/automation`, `/api/v1/system/{info,jobs,tasks,storage}`
+- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/scoring`, `/api/v1/packages`, `/api/v1/automation`, `/api/v1/applications`, `/api/v1/insights`, `/api/v1/system/{info,jobs,tasks,storage}`
 - Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
 - Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
 

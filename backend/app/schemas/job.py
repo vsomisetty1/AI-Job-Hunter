@@ -51,6 +51,7 @@ class CompanyRead(ORMModel):
     last_crawl_status: str | None
     last_error: str | None
     consecutive_failures: int
+    industry: str | None = None
     created_at: datetime
 
 
@@ -72,6 +73,8 @@ class CompanyCreate(APIModel):
 class CompanyUpdate(APIModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     is_tracked: bool | None = None
+    # Your label for analytics ("Fintech", "Healthcare"); "" clears it. Never inferred.
+    industry: str | None = Field(default=None, max_length=80)
 
 
 class JobSummary(BaseModel):

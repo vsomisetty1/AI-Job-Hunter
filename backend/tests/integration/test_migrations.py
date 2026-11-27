@@ -375,3 +375,72 @@ def test_0006_enforces_approval_mode_and_user_confirmation(db):
     assert "application_submissions" not in inspect(eng).get_table_names()
     assert "automation_logs" not in inspect(eng).get_table_names()
     command.upgrade(cfg, "head")
+
+
+def test_0007_outcomes_rules_and_downgrade(db):
+    """Outcomes need a sent application; responses and offers are completed events;
+    downgrade keeps withdrawn applications as submitted and drops the new tables."""
+    import sqlalchemy.exc
+
+    eng, cfg = db
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        jobs = [
+            conn.execute(
+                text(
+                    "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                    "VALUES (:c, :e, 'Eng', :u, :h) RETURNING id"
+                ),
+                {"c": c, "e": str(n), "u": f"https://x.test/{n}", "h": str(n) * 64},
+            ).scalar()
+            for n in (1, 2)
+        ]
+        sent = conn.execute(
+            text(
+                "INSERT INTO applications (job_id, profile_id, status, submitted_at, "
+                "withdrawn_at) VALUES (:j, :p, 'withdrawn', now(), now()) RETURNING id"
+            ),
+            {"j": jobs[0], "p": p},
+        ).scalar()
+        draft = conn.execute(
+            text("INSERT INTO applications (job_id, profile_id) VALUES (:j, :p) RETURNING id"),
+            {"j": jobs[1], "p": p},
+        ).scalar()
+        conn.execute(
+            text(
+                "INSERT INTO interview_events (application_id, stage, status, occurred_at) "
+                "VALUES (:a, 'phone_screen', 'scheduled', now())"
+            ),
+            {"a": sent},
+        )
+        conn.execute(text("UPDATE companies SET industry = 'Fintech' WHERE id = :c"), {"c": c})
+
+    bad = (
+        ("UPDATE applications SET offer_at = now() WHERE id = :a", {"a": draft}),
+        ("INSERT INTO interview_events (application_id, stage, status, occurred_at) "
+         "VALUES (:a, 'offer', 'scheduled', now())", {"a": sent}),
+        ("UPDATE companies SET industry = '  ' WHERE id = :c", {"c": c}),
+        ("INSERT INTO recommendation_states (key, status) VALUES ('Bad Key!', 'done')", {}),
+    )  # fmt: skip
+    for sql, params in bad:
+        with pytest.raises(sqlalchemy.exc.IntegrityError), eng.begin() as conn:
+            conn.execute(text(sql), params)
+
+    command.downgrade(cfg, "0006")
+    with eng.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT status FROM applications WHERE id = :a"), {"a": sent}
+            ).scalar()
+            == "submitted"
+        )
+    names = inspect(eng).get_table_names()
+    assert not {"interview_events", "learning_snapshots", "recommendation_states"} & set(names)
+    command.upgrade(cfg, "head")

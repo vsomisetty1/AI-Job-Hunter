@@ -46,6 +46,14 @@ OPENAPI_TAGS = [
         "description": "Fill approved packages into ATS forms; you review and confirm every "
         "submission (approval mode only).",
     },
+    {
+        "name": "applications",
+        "description": "Interview pipeline: record responses, interviews, offers, rejections.",
+    },
+    {
+        "name": "insights",
+        "description": "Analytics, insights and recommendations from your own outcomes.",
+    },
     {"name": "system", "description": "App info, scheduled jobs and background tasks."},
 ]
 
@@ -77,7 +85,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.scheduler = SchedulerService(enabled=settings.scheduler_enabled)
     register_jobs(
         app.state.scheduler, settings, app.state.pipeline, app.state.lifecycle,
-        app.state.automation,
+        app.state.automation, app.state.learning,
     )  # fmt: skip
     app.state.scheduler.start()
     logger.info(

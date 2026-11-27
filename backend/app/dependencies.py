@@ -17,6 +17,7 @@ from app.connectors.base import Connector
 from app.core.config import Settings, get_settings
 from app.core.database import session_scope
 from app.core.security import Principal, get_current_user
+from app.learning.service import LearningService
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
 from app.services.automation_service import AutomationService
@@ -24,6 +25,7 @@ from app.services.company_service import CompanyService
 from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
 from app.services.lifecycle_service import LifecycleService
+from app.services.outcome_service import OutcomeService
 from app.services.package_service import PackageGenerator, PackageWorkflow
 from app.services.pipeline_service import JobPipeline
 from app.services.profile_service import ProfileService
@@ -140,6 +142,21 @@ def get_automation(request: Request) -> AutomationService:
 
 
 AutomationDep = Annotated[AutomationService, Depends(get_automation)]
+
+
+# ------------------------------------------------------------ Phase 9 services
+def get_outcome_service(db: DbSession) -> OutcomeService:
+    return OutcomeService(db)
+
+
+OutcomeServiceDep = Annotated[OutcomeService, Depends(get_outcome_service)]
+
+
+def get_learning(request: Request) -> LearningService:
+    return cast(LearningService, request.app.state.learning)
+
+
+LearningDep = Annotated[LearningService, Depends(get_learning)]
 
 
 def get_company_service(db: DbSession, connectors: ConnectorsDep) -> CompanyService:

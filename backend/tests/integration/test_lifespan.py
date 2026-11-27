@@ -5,7 +5,12 @@ state by hand; this test runs the real lifespan.
 """
 
 from app.core import database
-from app.scheduler.tasks import AUTOMATION_SWEEP_JOB_ID, DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID
+from app.scheduler.tasks import (
+    AUTOMATION_SWEEP_JOB_ID,
+    DISCOVERY_JOB_ID,
+    LEARNING_JOB_ID,
+    MAINTENANCE_JOB_ID,
+)
 
 
 async def test_lifespan_starts_and_stops_everything(make_app, client_for, migrated_db_url):
@@ -15,7 +20,7 @@ async def test_lifespan_starts_and_stops_everything(make_app, client_for, migrat
         scheduler = app.state.scheduler
         assert scheduler.running
         assert sorted(j.id for j in scheduler.list_jobs()) == sorted(
-            [DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID, AUTOMATION_SWEEP_JOB_ID]
+            [DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID, AUTOMATION_SWEEP_JOB_ID, LEARNING_JOB_ID]
         )
         automation = app.state.automation
         assert not automation.browser.alive  # Chromium starts on the first run, not at boot

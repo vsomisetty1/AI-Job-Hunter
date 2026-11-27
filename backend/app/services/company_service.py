@@ -92,6 +92,8 @@ class CompanyService:
     async def update(self, company_id: uuid.UUID, body: CompanyUpdate) -> Company:
         company = await self.repo.get_or_404(company_id)
         changes = body.model_dump(exclude_unset=True, exclude_none=True)
+        if "industry" in body.model_fields_set:
+            changes["industry"] = (body.industry or "").strip() or None
         return await self.repo.update(company, changes) if changes else company
 
     async def delete(self, company_id: uuid.UUID) -> None:

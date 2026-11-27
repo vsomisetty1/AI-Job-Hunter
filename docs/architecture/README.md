@@ -20,3 +20,4 @@ ADR that supersedes the old one; don't rewrite history.
 | [012](ADR-012.md) | Application packages are built from facts and approved by a person (Phase 7) |
 | [013](ADR-013.md) | Data lifecycle and storage cleanup (MVP validation) |
 | [014](ADR-014.md) | Application automation in approval mode, by meaning, with checkpoints (Phase 8) |
+| [015](ADR-015.md) | Learning from your own outcomes, with statistical gates (Phase 9) |
