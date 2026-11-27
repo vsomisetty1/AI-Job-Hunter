@@ -170,11 +170,23 @@ async def test_pipeline_runs_stages_in_order_and_stops_on_failure(db_app):
 async def test_discovery_cycle_respects_setting(db_app, monkeypatch):
     from app.scheduler import tasks
 
+    calls = []
+
+    class FakeDiscovery:
+        async def run(self, trigger, *, company_ids=None, only_due=False):
+            calls.append((trigger, only_due))
+            return {"run_id": "x", "status": "succeeded", "details": []}
+
+    fake = FakeDiscovery()
     async with get_sessionmaker()() as s, s.begin():
         await s.execute(text("UPDATE settings SET discovery_enabled = false"))
     try:
-        assert (await tasks.run_discovery_cycle())["skipped"] is True
+        assert (await tasks.run_discovery_cycle(fake))["skipped"] is True
+        assert calls == []
     finally:
         async with get_sessionmaker()() as s, s.begin():
             await s.execute(text("UPDATE settings SET discovery_enabled = true"))
-    assert (await tasks.run_discovery_cycle())["skipped"] is False
+    result = await tasks.run_discovery_cycle(fake)
+    assert result["skipped"] is False and "details" not in result
+    # Scheduled runs are incremental: only companies whose crawl is due.
+    assert calls == [("scheduled", True)]

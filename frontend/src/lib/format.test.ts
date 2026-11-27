@@ -36,3 +36,24 @@ describe("format helpers", () => {
     expect(safeUrl(null)).toBeNull();
   });
 });
+
+describe("formatSalary", () => {
+  it("formats ranges, open ends and unknown currencies", async () => {
+    const { formatSalary } = await import("./format");
+    expect(formatSalary(120000, 150000, "USD")).toBe("$120k – $150k");
+    expect(formatSalary(90000, null, "EUR")).toBe("€90k+");
+    expect(formatSalary(null, 80000, "SEK")).toBe("up to 80k SEK");
+    expect(formatSalary(null, null, "USD")).toBe("");
+  });
+});
+
+describe("formatRelative", () => {
+  it("uses short relative units", async () => {
+    const { formatRelative } = await import("./format");
+    const now = Date.parse("2026-11-27T12:00:00Z");
+    expect(formatRelative("2026-11-27T11:59:30Z", now)).toBe("just now");
+    expect(formatRelative("2026-11-27T11:00:00Z", now)).toBe("1 h ago");
+    expect(formatRelative("2026-11-24T12:00:00Z", now)).toBe("3 d ago");
+    expect(formatRelative(null, now)).toBe("");
+  });
+});

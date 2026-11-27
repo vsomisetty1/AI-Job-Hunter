@@ -1,7 +1,7 @@
 -- =====================================================================
 -- AI Job Hunter - PostgreSQL schema (requires PostgreSQL 15+)
 --
--- Reference copy of the schema at Alembic head (migrations 0001 + 0002).
+-- Reference copy of the schema at Alembic head (migrations 0001-0003).
 -- Migrations execute frozen SQL files in migrations/sql/; an integration
 -- test checks that this file and the migrated database have the same
 -- catalog (columns, constraints, indexes, triggers).
@@ -170,11 +170,15 @@ CREATE TABLE jobs (
     -- Hash of normalized company + title + location (cross-source dedup).
     -- Deliberately NOT unique: one company may post identical titles.
     dedup_key         text NOT NULL,
+    -- Hash of the normalized posting: a refresh compares it to detect changes.
+    content_hash      text,
     status            text NOT NULL DEFAULT 'new',
     filter_reason     text,
     posted_at         timestamptz,
     first_seen_at     timestamptz NOT NULL DEFAULT now(),
     last_seen_at      timestamptz NOT NULL DEFAULT now(),
+    -- Set when the posting disappears from its board (status 'expired').
+    expired_at        timestamptz,
     -- Raw connector payload (debugging). Large; candidate for pruning.
     raw               jsonb,
     created_at        timestamptz NOT NULL DEFAULT now(),
@@ -197,6 +201,9 @@ CREATE TABLE jobs (
         CHECK ((salary_min IS NULL OR salary_min >= 0) AND (salary_max IS NULL OR salary_max >= 0)),
     CONSTRAINT ck_jobs_currency CHECK (salary_currency IS NULL OR salary_currency ~ '^[A-Z]{3}$'),
     CONSTRAINT ck_jobs_dedup_key CHECK (dedup_key ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_jobs_content_hash
+        CHECK (content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_jobs_expired_at CHECK (expired_at IS NULL OR status = 'expired'),
     CONSTRAINT ck_jobs_requirements_json CHECK (jsonb_typeof(requirements) = 'array'),
     CONSTRAINT ck_jobs_raw_json CHECK (raw IS NULL OR jsonb_typeof(raw) = 'object'),
     CONSTRAINT ck_jobs_seen_order CHECK (last_seen_at >= first_seen_at),
@@ -597,3 +604,49 @@ CREATE TABLE llm_cache_entries (
 CREATE INDEX ix_llm_cache_entries_purpose ON llm_cache_entries (purpose);
 CREATE INDEX ix_llm_cache_entries_expires_at
     ON llm_cache_entries (expires_at) WHERE expires_at IS NOT NULL;
+
+-- ---------------------------------------------------------------------
+-- discovery_runs: one row per job-board crawl (monitoring). Counters are
+-- totals over all companies crawled; details holds per-company results.
+-- ---------------------------------------------------------------------
+CREATE TABLE discovery_runs (
+    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    trigger             text NOT NULL,
+    status              text NOT NULL DEFAULT 'running',
+    companies_total     integer NOT NULL DEFAULT 0,
+    companies_succeeded integer NOT NULL DEFAULT 0,
+    companies_failed    integer NOT NULL DEFAULT 0,
+    jobs_found          integer NOT NULL DEFAULT 0,
+    jobs_inserted       integer NOT NULL DEFAULT 0,
+    jobs_updated        integer NOT NULL DEFAULT 0,
+    jobs_unchanged      integer NOT NULL DEFAULT 0,
+    jobs_skipped        integer NOT NULL DEFAULT 0,
+    jobs_expired        integer NOT NULL DEFAULT 0,
+    error               text,
+    -- Per-company results: [{company_id, source, slug, status, counts, error}]
+    details             jsonb NOT NULL DEFAULT '[]'::jsonb,
+    started_at          timestamptz NOT NULL DEFAULT now(),
+    finished_at         timestamptz,
+    duration_ms         integer,
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_discovery_runs_trigger CHECK (trigger IN ('manual', 'scheduled')),
+    CONSTRAINT ck_discovery_runs_status
+        CHECK (status IN ('running', 'succeeded', 'partial', 'failed', 'cancelled')),
+    CONSTRAINT ck_discovery_runs_counts CHECK (
+        companies_total >= 0 AND companies_succeeded >= 0 AND companies_failed >= 0
+        AND jobs_found >= 0 AND jobs_inserted >= 0 AND jobs_updated >= 0
+        AND jobs_unchanged >= 0 AND jobs_skipped >= 0 AND jobs_expired >= 0),
+    CONSTRAINT ck_discovery_runs_finished
+        CHECK (finished_at IS NULL OR finished_at >= started_at),
+    CONSTRAINT ck_discovery_runs_done_has_finish
+        CHECK (status = 'running' OR finished_at IS NOT NULL),
+    CONSTRAINT ck_discovery_runs_duration CHECK (duration_ms IS NULL OR duration_ms >= 0),
+    CONSTRAINT ck_discovery_runs_details_json CHECK (jsonb_typeof(details) = 'array')
+);
+CREATE INDEX ix_discovery_runs_started_at ON discovery_runs (started_at DESC);
+-- One crawl at a time (a second "run now" while one is running is refused).
+CREATE UNIQUE INDEX uq_discovery_runs_one_running ON discovery_runs ((true))
+    WHERE status = 'running';
+CREATE TRIGGER trg_discovery_runs_updated
+    BEFORE UPDATE ON discovery_runs
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();

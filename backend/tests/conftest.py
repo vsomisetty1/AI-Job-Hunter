@@ -43,7 +43,7 @@ def make_app(tmp_path):
     from app.scheduler.scheduler import SchedulerService
     from app.storage import LocalStorage
 
-    def _make(*, claude=None, sessionmaker=None, **overrides):
+    def _make(*, claude=None, sessionmaker=None, http=None, **overrides):
         overrides.setdefault("database_url", "postgresql://u:p@127.0.0.1:1/unused")
         overrides.setdefault("app_env", "test")
         overrides.setdefault("scheduler_enabled", False)
@@ -58,6 +58,7 @@ def make_app(tmp_path):
             sessionmaker=sessionmaker or async_sessionmaker(),  # unbound: no DB in unit tests
             anthropic_client=claude,
             storage=LocalStorage(tmp_path / "storage"),
+            http=http,
         )
         return app
 

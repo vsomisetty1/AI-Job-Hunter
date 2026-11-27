@@ -43,6 +43,7 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     url: Mapped[str] = mapped_column(Text, nullable=False)
     apply_url: Mapped[str | None] = mapped_column(Text)
     dedup_key: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="new")
     filter_reason: Mapped[str | None] = mapped_column(Text)
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -52,6 +53,7 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
     company = relationship("Company", back_populates="jobs")
@@ -81,6 +83,10 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "salary_currency IS NULL OR salary_currency ~ '^[A-Z]{3}$'", name="ck_jobs_currency"
         ),
         CheckConstraint("dedup_key ~ '^[0-9a-f]{64}$'", name="ck_jobs_dedup_key"),
+        CheckConstraint(
+            "content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$'", name="ck_jobs_content_hash"
+        ),
+        CheckConstraint("expired_at IS NULL OR status = 'expired'", name="ck_jobs_expired_at"),
         CheckConstraint("jsonb_typeof(requirements) = 'array'", name="ck_jobs_requirements_json"),
         CheckConstraint("raw IS NULL OR jsonb_typeof(raw) = 'object'", name="ck_jobs_raw_json"),
         CheckConstraint("last_seen_at >= first_seen_at", name="ck_jobs_seen_order"),

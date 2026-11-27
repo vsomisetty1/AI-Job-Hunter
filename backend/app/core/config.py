@@ -105,6 +105,10 @@ class Settings(BaseSettings):
 
     scheduler_enabled: bool = True
     discovery_interval_minutes: int = Field(default=360, ge=5)
+    # Job boards crawled in parallel, and HTTP behaviour towards them.
+    discovery_concurrency: int = Field(default=4, ge=1, le=16)
+    connector_timeout_seconds: float = Field(default=30.0, gt=0)
+    connector_retry_attempts: int = Field(default=4, ge=1, le=10)
 
     @field_validator("database_url")
     @classmethod

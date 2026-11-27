@@ -9,6 +9,9 @@ asyncio_default_fixture_loop_scope = "function"
 # Deprecations from our code or dependencies fail the run, so upgrades surface them early.
 filterwarnings = ["error"]
 testpaths = ["tests"]
+# `live` tests call the real job-board APIs; run them on demand with `pytest -m live`.
+markers = ["live: calls real public job-board APIs (opt-in, needs network)"]
+addopts = "-m 'not live'"
 
 [tool.ruff]
 line-length = 100

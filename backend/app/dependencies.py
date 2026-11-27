@@ -13,11 +13,15 @@ from typing import Annotated, cast
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.connectors.base import Connector
 from app.core.config import Settings, get_settings
 from app.core.database import session_scope
 from app.core.security import Principal, get_current_user
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
+from app.services.company_service import CompanyService
+from app.services.discovery_service import DiscoveryService
+from app.services.job_service import JobService
 from app.services.profile_service import ProfileService
 from app.services.resume_processing import ResumeProcessor
 from app.services.resume_service import ResumeService
@@ -79,3 +83,28 @@ AppSettingsDep = Annotated[Settings, Depends(get_app_settings)]
 ProcessorDep = Annotated[ResumeProcessor, Depends(get_processor)]
 ResumeServiceDep = Annotated[ResumeService, Depends(get_resume_service)]
 ProfileServiceDep = Annotated[ProfileService, Depends(get_profile_service)]
+
+
+# ------------------------------------------------------------ Phase 5 services
+def get_connectors(request: Request) -> dict[str, Connector]:
+    return cast(dict[str, Connector], request.app.state.connectors)
+
+
+def get_discovery(request: Request) -> DiscoveryService:
+    return cast(DiscoveryService, request.app.state.discovery)
+
+
+ConnectorsDep = Annotated[dict[str, Connector], Depends(get_connectors)]
+DiscoveryDep = Annotated[DiscoveryService, Depends(get_discovery)]
+
+
+def get_company_service(db: DbSession, connectors: ConnectorsDep) -> CompanyService:
+    return CompanyService(db, connectors)
+
+
+def get_job_service(db: DbSession) -> JobService:
+    return JobService(db)
+
+
+CompanyServiceDep = Annotated[CompanyService, Depends(get_company_service)]
+JobServiceDep = Annotated[JobService, Depends(get_job_service)]

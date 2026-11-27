@@ -89,6 +89,20 @@ BEGIN
     PERFORM pg_temp.expect_error('INSERT INTO jobs (company_id, external_id, title, url, dedup_key, first_seen_at, last_seen_at) VALUES (''{c}'', ''9'', ''T'', ''https://x.test/9'', ''{h}'', now(), now() - interval ''1 day'')', 'last_seen >= first_seen', v);
     PERFORM pg_temp.expect_error('DELETE FROM companies WHERE id = ''{c}''', 'company delete restricted while jobs exist', v);
 
+    -- ------------------------------------------------- job discovery (0003)
+    PERFORM pg_temp.expect_error('UPDATE jobs SET expired_at = now() WHERE id = ''{j}''', 'expired_at only for expired jobs', jsonb_build_object('j', j1::text));
+    UPDATE jobs SET status = 'expired', expired_at = now() WHERE id = j2;
+    UPDATE jobs SET status = 'new', expired_at = NULL WHERE id = j2;
+    PERFORM pg_temp.expect_error('UPDATE jobs SET content_hash = ''xyz'' WHERE id = ''{j}''', 'content hash format', jsonb_build_object('j', j1::text));
+    INSERT INTO discovery_runs (trigger) VALUES ('manual');
+    PERFORM pg_temp.expect_error('INSERT INTO discovery_runs (trigger) VALUES (''scheduled'')', 'one running discovery at a time');
+    PERFORM pg_temp.expect_error('UPDATE discovery_runs SET status = ''succeeded''', 'finished run needs finished_at');
+    UPDATE discovery_runs SET status = 'succeeded', finished_at = now(), jobs_found = 3;
+    INSERT INTO discovery_runs (trigger) VALUES ('scheduled');
+    PERFORM pg_temp.expect_error('INSERT INTO discovery_runs (trigger, status, finished_at) VALUES (''cron'', ''failed'', now())', 'trigger enum');
+    PERFORM pg_temp.expect_error('UPDATE discovery_runs SET jobs_inserted = -1 WHERE status = ''running''', 'counters non-negative');
+    DELETE FROM discovery_runs;
+
     -- ---------------------------------------------------------- artifacts
     INSERT INTO resume_versions (resume_id, job_id, version_number) VALUES (r, j1, 1) RETURNING id INTO rv1;
     INSERT INTO resume_versions (resume_id, job_id, version_number) VALUES (r, j2, 2) RETURNING id INTO rv2;

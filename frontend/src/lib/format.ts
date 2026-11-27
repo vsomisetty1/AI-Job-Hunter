@@ -75,3 +75,28 @@ export function safeUrl(url: string | null | undefined): string | null {
     return null;
   }
 }
+
+/** "$120k – $150k", "€90k+", or "" when unknown. Amounts are yearly. */
+export function formatSalary(min: number | null, max: number | null, currency: string | null): string {
+  if (min == null && max == null) return "";
+  const fmt = (n: number) => {
+    const short = n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+    const symbol = ({ USD: "$", EUR: "€", GBP: "£", CAD: "CA$", AUD: "A$", INR: "₹" } as Record<string, string>)[
+      currency ?? ""
+    ];
+    return symbol ? `${symbol}${short}` : `${short}${currency ? ` ${currency}` : ""}`;
+  };
+  if (min != null && max != null) return min === max ? fmt(min) : `${fmt(min)} – ${fmt(max)}`;
+  return min != null ? `${fmt(min)}+` : `up to ${fmt(max as number)}`;
+}
+
+/** "3 min ago", "2 h ago", "5 d ago"; falls back to a date after 30 days. */
+export function formatRelative(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return "";
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 30 * 86400) return `${Math.floor(s / 86400)} d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
+}

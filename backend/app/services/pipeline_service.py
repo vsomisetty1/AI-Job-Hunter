@@ -53,11 +53,6 @@ class PipelineService:
         self.stages = list(stages)
         self._sessionmaker = sessionmaker
 
-    @classmethod
-    def discovery(cls) -> PipelineService:
-        """Discovery -> dedup -> rule filter -> scoring. Stages arrive in Phases 5-6."""
-        return cls(stages=[])
-
     async def run(self, context: dict[str, Any]) -> PipelineResult:
         result = PipelineResult()
         for stage in self.stages:

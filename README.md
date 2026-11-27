@@ -18,8 +18,8 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | 2 | Database (schema, migrations, ORM) | Done |
 | 3 | Backend foundation | Done |
 | 4 | Resume intelligence (Agents 0, 1; resume versioning) | Done |
-| 5 | Job discovery (Agents 2, 3, 4) | Pending |
-| 6 | Scoring + learning (Agent 5) | Pending |
+| 5 | Job discovery (Agents 2, 3; Agent 4 filtering moves to Phase 6) | Done |
+| 6 | Rule filtering + scoring + learning (Agents 4, 5) | Pending |
 | 7 | Application packages + automation (Agents 6, 7, 8, 9, 10) | Pending |
 | 8 | Frontend | Pending |
 | 9 | Deployment | Pending |
@@ -63,6 +63,50 @@ input, so unchanged inputs cost nothing. Every call's tokens and USD cost are re
 bucket; create it with `supabase/storage.sql`). Downloads go through the API as
 attachments.
 
+## Job discovery (Phase 5)
+
+The app discovers jobs from the **public job boards** of companies you choose, on
+Greenhouse, Lever and Ashby (no keys and no scraping: each platform's documented public
+JSON API).
+
+1. **Pick companies** on the **Discovery** page: tick suggestions (Stripe, Figma, Ramp,
+   OpenAI, ...) or add any board by platform + board name, the last part of its URL
+   (`job-boards.greenhouse.io/<board>`, `jobs.lever.co/<board>`, `jobs.ashbyhq.com/<board>`).
+   New boards are checked live before they are saved.
+2. **Discover**: "Discover jobs now" crawls every tracked company; the scheduler re-crawls
+   every `DISCOVERY_INTERVAL_MINUTES` (6 h), only companies that are due (incremental).
+   Turn scheduled discovery off with `PATCH /api/v1/settings {"discovery_enabled": false}`.
+3. **Browse** on the **Jobs** page: search title/company/location, filter by platform and
+   workplace, open a job for its description, requirements, salary, dates and the raw
+   board payload.
+
+How it works (`backend/app/connectors/`, `agents/agent_2_job_discovery.py`,
+`agents/agent_3_deduplication.py`, `services/discovery_service.py`):
+
+- **Connectors** share one interface (`discover_jobs`, `normalize_job`, `validate_job`,
+  `health_check`) and one HTTP client with timeouts, a response size cap, and retries with
+  backoff for timeouts, 429 and 5xx (honouring `Retry-After`). Lever is paginated; an
+  unknown board (404) is never retried. Adding Workday later = one new connector class.
+- **Normalization**: plain-text description (HTML stripped), requirements extracted from
+  requirement/qualification sections, remote/hybrid/on-site, employment type, yearly
+  salary range (structured pay data first, then the posting text), posted date.
+  Invalid postings (no title, unsafe URL, ...) are counted as skipped, never stored.
+- **Deduplication**: same board + job id → update if its content hash changed, otherwise
+  just `last_seen_at`; same URL as another job → skipped; same company + title + location
+  fingerprint already found on another platform → skipped. `first_seen_at` never moves.
+- **Expiry**: a job missing from a complete board response is marked `expired` (never
+  if you applied); if it comes back it is revived. A response that looks truncated
+  expires nothing.
+- **Monitoring**: every run is a `discovery_runs` row with found / inserted / updated /
+  unchanged / skipped / expired counts and per-company results; companies keep their
+  last crawl status, error and consecutive failures; `GET /api/v1/discovery/health`
+  (optionally `?probe=true`) reports per-platform health. One run at a time.
+
+API: `/api/v1/jobs` (search, `/stats`, `/{id}`, `/{id}/raw`), `/api/v1/companies`
+(+ `/directory`, `/suggested`), `/api/v1/discovery/runs`, `/api/v1/discovery/health`.
+
+**Check it against the real job boards:** [docs/VALIDATION.md](docs/VALIDATION.md).
+
 ## Run it locally
 
 Needs Docker, Python 3.14 and Node 26.
@@ -83,7 +127,7 @@ python -m app             # binds BACKEND_HOST:BACKEND_PORT, one worker
 
 - Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
 - Probes: `GET /health` (liveness), `GET /health/ready` (database + migrations + scheduler)
-- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/system/{info,jobs,tasks}`
+- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/system/{info,jobs,tasks}`
 - Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
 - Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
 
@@ -104,7 +148,7 @@ Layout (imports only point down; `tests/unit/test_architecture.py` enforces it):
 One request is one transaction (`get_db`); background work uses `session_scope()` and
 never holds a transaction open during a Claude call. At startup, work interrupted by a
 previous shutdown is marked failed/cancelled; a daily job prunes expired Claude cache
-entries and `agent_runs` older than `AGENT_RUN_RETENTION_DAYS` (180).
+entries, and `agent_runs` and `discovery_runs` older than `AGENT_RUN_RETENTION_DAYS` (180).
 
 Tests, lint and smoke test: see [docs/TESTING.md](docs/TESTING.md).
 

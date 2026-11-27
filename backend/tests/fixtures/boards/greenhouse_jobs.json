@@ -1,0 +1,105 @@
+{
+ "jobs": [
+  {
+   "absolute_url": "https://acme.example/careers?gh_jid=4001",
+   "data_compliance": [
+    {
+     "type": "gdpr",
+     "requires_consent": false
+    }
+   ],
+   "internal_job_id": 9001,
+   "location": {
+    "name": "San Francisco, CA; New York, NY"
+   },
+   "metadata": null,
+   "id": 4001,
+   "updated_at": "2026-11-20T09:00:00-05:00",
+   "requisition_id": "ENG-101",
+   "title": "Senior Backend Engineer",
+   "company_name": "Acme Robotics",
+   "first_published": "2026-11-01T10:00:00-04:00",
+   "language": "en",
+   "content": "&lt;h2&gt;&lt;strong&gt;About Acme&lt;/strong&gt;&lt;/h2&gt;&lt;p&gt;Acme builds warehouse robots.&lt;/p&gt;&lt;h3&gt;What you'll do&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;Design APIs in Python&lt;/li&gt;&lt;li&gt;Own the fleet data platform&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;&lt;strong&gt;Qualifications&lt;/strong&gt;&lt;/p&gt;&lt;ul&gt;&lt;li&gt;5+ years building backend services&lt;/li&gt;&lt;li&gt;Experience with PostgreSQL &amp;amp; Kafka&lt;/li&gt;&lt;/ul&gt;&lt;script&gt;alert(1)&lt;/script&gt;",
+   "departments": [
+    {
+     "id": 1,
+     "name": "Engineering",
+     "child_ids": [],
+     "parent_id": null
+    }
+   ],
+   "offices": [
+    {
+     "id": 2,
+     "name": "US",
+     "location": null,
+     "child_ids": [],
+     "parent_id": null
+    }
+   ],
+   "pay_input_ranges": [
+    {
+     "min_cents": 18000000,
+     "max_cents": 22000000,
+     "currency_type": "USD",
+     "title": "US Annual Base",
+     "blurb": "<p>Base pay</p>"
+    },
+    {
+     "min_cents": 20000000,
+     "max_cents": 24000000,
+     "currency_type": "CAD",
+     "title": "Canada Annual Base",
+     "blurb": ""
+    }
+   ]
+  },
+  {
+   "absolute_url": "https://acme.example/careers?gh_jid=4002",
+   "internal_job_id": 9002,
+   "location": {
+    "name": "Remote - US"
+   },
+   "metadata": null,
+   "id": 4002,
+   "updated_at": "2026-11-18T09:00:00-05:00",
+   "title": "Data Analyst",
+   "company_name": "Acme Robotics",
+   "first_published": null,
+   "content": "&lt;p&gt;Analyze robot telemetry. The base salary range for this role is $95,000 - $120,000.&lt;/p&gt;",
+   "departments": [],
+   "offices": [],
+   "pay_input_ranges": []
+  },
+  {
+   "absolute_url": "https://acme.example/careers?gh_jid=4003",
+   "internal_job_id": 9003,
+   "location": {
+    "name": "Hybrid - Boston, MA"
+   },
+   "id": 4003,
+   "updated_at": "2026-11-10T09:00:00-05:00",
+   "title": "Robotics Software Engineering Intern",
+   "company_name": "Acme Robotics",
+   "first_published": "2026-11-09T09:00:00-05:00",
+   "content": "&lt;p&gt;Summer internship.&lt;/p&gt;",
+   "departments": [],
+   "offices": [],
+   "pay_input_ranges": []
+  },
+  {
+   "absolute_url": "javascript:alert(1)",
+   "id": 4004,
+   "title": "   ",
+   "location": {
+    "name": "Nowhere"
+   },
+   "content": "",
+   "updated_at": "2026-11-10T09:00:00-05:00"
+  }
+ ],
+ "meta": {
+  "total": 4
+ }
+}

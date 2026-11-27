@@ -21,8 +21,9 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
 - **External services are never called in CI.** Claude API, Supabase and job boards are
   mocked (`respx` for HTTP); one opt-in test per integration may hit the real service
   when its key is present, and is skipped in CI by marker, not by accident.
-- **CI is extended** when a phase adds something new to verify (e.g. Phase 7 adds a
-  Playwright job with browsers; Phase 8 adds frontend unit/e2e tests; Phase 9 builds
+- **CI is extended** when a phase adds something new to verify (Phase 5 added the weekly
+  `live-connectors.yml` workflow that runs `tests/live` against the real job boards;
+  Phase 7 adds a Playwright job with browsers; Phase 8 adds frontend unit/e2e tests; Phase 9 builds
   the Docker images).
 - The phase summary states what is **not** covered.
 
@@ -38,6 +39,16 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   transaction; `build_live_app` (resume flows with concurrent background tasks) uses the
   real pool and empties user tables before and after.
 - Claude is never called in CI: `tests/fakes.py` (`FakeAnthropic`) answers by output schema.
+- Job boards are never called in CI: `tests/fixtures/boards/` holds realistic Greenhouse,
+  Lever and Ashby responses (same shapes as the live APIs, synthetic companies) served by
+  `respx`. `tests/unit/test_connectors.py` covers pagination, retries, errors and
+  normalization; `tests/unit/test_deduplication.py` the dedup rules;
+  `tests/integration/test_discovery.py` the whole pipeline on Postgres (insert, unchanged,
+  update, expire, revive, incomplete responses, cross-board and URL duplicates, failure
+  isolation, one run at a time, scheduled incremental refresh, the API).
+- `tests/live/` (marker `live`, deselected by default) checks the connectors against the
+  real platforms: `pytest -m live tests/live`. For the full app, see
+  [VALIDATION.md](VALIDATION.md).
 
 ## Running locally
 
@@ -46,6 +57,7 @@ cd backend && source .venv/bin/activate
 ruff check app tests migrations && ruff format --check app tests migrations && mypy
 TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:<password>@localhost:5432/jobhunter_test pytest
 DATABASE_URL=postgresql://jobhunter:<password>@localhost:5432/jobhunter ../scripts/smoke_backend.sh
+pytest -m live tests/live       # optional: real Greenhouse/Lever/Ashby APIs (needs internet)
 
 cd ../frontend && npm ci && npm run typecheck && npm run lint && npm test && npm run build
 ```

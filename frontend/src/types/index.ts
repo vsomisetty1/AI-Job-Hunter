@@ -237,3 +237,153 @@ export interface BackgroundTask {
   finished_at: string | null;
   error: string | null;
 }
+
+// ------------------------------------------------------------ Phase 5: discovery
+export type JobSource = "greenhouse" | "lever" | "ashby";
+export type RemoteType = "remote" | "hybrid" | "onsite" | "unknown";
+export type JobStatus = "new" | "filtered" | "scored" | "shortlisted" | "skipped" | "applied" | "expired";
+
+export interface JobSummary {
+  id: string;
+  company_id: string;
+  company_name: string;
+  source: JobSource;
+  external_id: string;
+  title: string;
+  location: string | null;
+  remote_type: RemoteType;
+  employment_type: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null;
+  status: JobStatus;
+  url: string;
+  posted_at: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface JobDetail extends JobSummary {
+  compensation_text: string | null;
+  description: string;
+  requirements: string[];
+  apply_url: string | null;
+  dedup_key: string;
+  expired_at: string | null;
+  updated_at: string;
+}
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface JobSearch {
+  q?: string;
+  source?: JobSource | "";
+  company_id?: string;
+  remote_type?: RemoteType | "";
+  status?: JobStatus | "";
+  include_expired?: boolean;
+  sort?: "newest" | "posted" | "title" | "company";
+  limit?: number;
+  offset?: number;
+}
+
+export interface JobRaw {
+  source: JobSource;
+  external_id: string;
+  raw: unknown;
+}
+
+export interface Company {
+  id: string;
+  name: string;
+  source: JobSource;
+  slug: string;
+  careers_url: string | null;
+  is_tracked: boolean;
+  last_crawled_at: string | null;
+  last_crawl_status: "ok" | "error" | "not_found" | null;
+  last_error: string | null;
+  consecutive_failures: number;
+  created_at: string;
+  active_jobs: number;
+}
+
+export interface DirectoryEntry {
+  source: JobSource;
+  slug: string;
+  name: string;
+  added: boolean;
+}
+
+export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "cancelled";
+
+export interface DiscoveryRun {
+  id: string;
+  trigger: "manual" | "scheduled";
+  status: RunStatus;
+  companies_total: number;
+  companies_succeeded: number;
+  companies_failed: number;
+  jobs_found: number;
+  jobs_inserted: number;
+  jobs_updated: number;
+  jobs_unchanged: number;
+  jobs_skipped: number;
+  jobs_expired: number;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+}
+
+export interface CompanyOutcome {
+  company_id: string;
+  source: JobSource;
+  slug: string;
+  name: string;
+  status: "ok" | "error" | "not_found";
+  found: number;
+  invalid: number;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  expired: number;
+  pages: number;
+  duration_ms: number;
+  error: string | null;
+  notes: string[];
+  skip_reasons: Record<string, number>;
+}
+
+export interface DiscoveryRunDetail extends DiscoveryRun {
+  details: CompanyOutcome[];
+}
+
+export interface DiscoveryStarted {
+  run_id: string;
+  task_id: string;
+  status: string;
+  detail: string;
+}
+
+export interface SourceHealth {
+  source: JobSource;
+  display_name: string;
+  companies_tracked: number;
+  companies_failing: number;
+  last_success_at: string | null;
+  jobs_active: number;
+  probe: {
+    ok: boolean;
+    board: string;
+    latency_ms: number;
+    jobs_visible: number | null;
+    error: string | null;
+  } | null;
+}

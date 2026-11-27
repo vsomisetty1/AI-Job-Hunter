@@ -431,10 +431,21 @@ async def test_restart_recovers_interrupted_work(db_app, client_for):
             await conn.execute(
                 text("INSERT INTO agent_runs (agent_name, status) VALUES ('stuck', 'running')")
             )
-        assert await recover_interrupted_work() == {"profiles": 1, "agent_runs": 1}
+            await conn.execute(text("INSERT INTO discovery_runs (trigger) VALUES ('manual')"))
+        assert await recover_interrupted_work() == {
+            "profiles": 1,
+            "agent_runs": 1,
+            "discovery_runs": 1,
+        }
         p = (await c.get("/api/v1/profile")).json()
     assert (p["inference_status"], p["inference_error"]) == ("failed", INTERRUPTED)
     assert await count(db_app, "SELECT count(*) FROM agent_runs WHERE status = 'running'") == 0
+    assert (
+        await count(db_app, "SELECT string_agg(status || ':' || error, ',') FROM discovery_runs")
+        == f"cancelled:{INTERRUPTED}"
+    )
+    async with get_engine().begin() as conn:
+        await conn.execute(text("DELETE FROM discovery_runs"))
 
 
 async def test_maintenance_prunes_expired_cache_and_old_runs(db_app):
@@ -456,8 +467,18 @@ async def test_maintenance_prunes_expired_cache_and_old_runs(db_app):
                 "('new', 'succeeded', now(), now())"
             )
         )
+        await conn.execute(
+            text(
+                "INSERT INTO discovery_runs (trigger, status, started_at, finished_at) VALUES "
+                "('scheduled', 'succeeded', now() - interval '400 days', now()), "
+                "('manual', 'succeeded', now(), now())"
+            )
+        )
     result = await run_maintenance(db_app.state.settings)
-    assert result == {"llm_cache_entries": 1, "agent_runs": 1}
+    assert result == {"llm_cache_entries": 1, "agent_runs": 1, "discovery_runs": 1}
+    assert await count(db_app, "SELECT string_agg(trigger, ',') FROM discovery_runs") == "manual"
+    async with get_engine().begin() as conn:
+        await conn.execute(text("DELETE FROM discovery_runs"))
     assert await count(db_app, "SELECT count(*) FROM llm_cache_entries") == 2
     assert await count(db_app, "SELECT string_agg(agent_name, ',') FROM agent_runs") == "new"
 

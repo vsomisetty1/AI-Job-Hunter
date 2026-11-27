@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-import type { CandidateProfile, ParsedResume } from "@/types";
+import type { CandidateProfile, Company, DiscoveryRunDetail, JobDetail, JobSummary, ParsedResume } from "@/types";
 
 export function parsedResume(overrides: Partial<ParsedResume> = {}): ParsedResume {
   return {
@@ -100,3 +100,95 @@ export function mockFetch(...responses: Response[]) {
 
 export const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+export function jobSummary(overrides: Partial<JobSummary> = {}): JobSummary {
+  return {
+    id: "j1",
+    company_id: "c1",
+    company_name: "Acme Robotics",
+    source: "greenhouse",
+    external_id: "4001",
+    title: "Senior Backend Engineer",
+    location: "San Francisco, CA",
+    remote_type: "hybrid",
+    employment_type: "full_time",
+    salary_min: 180000,
+    salary_max: 220000,
+    salary_currency: "USD",
+    status: "new",
+    url: "https://acme.example/careers?gh_jid=4001",
+    posted_at: "2026-11-20T10:00:00Z",
+    first_seen_at: "2026-11-26T10:00:00Z",
+    last_seen_at: "2026-11-27T10:00:00Z",
+    ...overrides,
+  };
+}
+
+export function jobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
+  return {
+    ...jobSummary(),
+    compensation_text: "$180,000 - $220,000 USD",
+    description: "Build robots.\n\n• Ship APIs",
+    requirements: ["5+ years of Python"],
+    apply_url: null,
+    dedup_key: "a".repeat(64),
+    expired_at: null,
+    updated_at: "2026-11-27T10:00:00Z",
+    ...overrides,
+  };
+}
+
+export function company(overrides: Partial<Company> = {}): Company {
+  return {
+    id: "c1",
+    name: "Acme Robotics",
+    source: "greenhouse",
+    slug: "acme",
+    careers_url: "https://job-boards.greenhouse.io/acme",
+    is_tracked: true,
+    last_crawled_at: null,
+    last_crawl_status: null,
+    last_error: null,
+    consecutive_failures: 0,
+    created_at: "2026-11-27T10:00:00Z",
+    active_jobs: 0,
+    ...overrides,
+  };
+}
+
+export function discoveryRun(overrides: Partial<DiscoveryRunDetail> = {}): DiscoveryRunDetail {
+  return {
+    id: "r1",
+    trigger: "manual",
+    status: "succeeded",
+    companies_total: 1,
+    companies_succeeded: 1,
+    companies_failed: 0,
+    jobs_found: 4,
+    jobs_inserted: 3,
+    jobs_updated: 0,
+    jobs_unchanged: 0,
+    jobs_skipped: 1,
+    jobs_expired: 0,
+    error: null,
+    started_at: "2026-11-27T10:00:00Z",
+    finished_at: "2026-11-27T10:00:02Z",
+    duration_ms: 2000,
+    details: [],
+    ...overrides,
+  };
+}
+
+/** fetch mock that answers by "METHOD path" (path after /api/v1, query included). */
+export function routeFetch(routes: Record<string, () => Response>) {
+  const fn = vi.fn<typeof fetch>(async (input, init) => {
+    const url = new URL(String(input));
+    const path = url.pathname.replace(/^\/api\/v1/, "") + url.search;
+    const key = `${init?.method ?? "GET"} ${path}`;
+    const handler = routes[key] ?? routes[`${init?.method ?? "GET"} ${url.pathname.replace(/^\/api\/v1/, "")}`];
+    if (!handler) return json({ error: { code: "not_found", message: `no mock for ${key}` } }, 404);
+    return handler();
+  });
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}

@@ -13,7 +13,7 @@ REQUIRED_TABLES = {
     "settings", "browser_sessions",
 }  # fmt: skip
 # Tables intentionally without created_at / updated_at.
-NO_CREATED_AT = {"agent_runs"}  # uses started_at
+NO_CREATED_AT = {"agent_runs", "discovery_runs"}  # use started_at
 IMMUTABLE = {  # append-only rows: no updated_at, so no trigger needed
     "job_scores", "application_events", "agent_runs", "llm_cache_entries",
 }  # fmt: skip
@@ -132,6 +132,7 @@ FROZEN_MIGRATION_SHA256 = {
     "0002_resume_intelligence.sql": (
         "5a09c39a801e7679502259e7cc79eb8d7e2a7f07994897f8972777716d6b8fd0"
     ),
+    "0003_job_discovery.sql": "3d7cd12fec49dba9457562c4775f0035a58e12ee97e08847dc6cdace9ad1e296",
 }
 
 

@@ -14,6 +14,11 @@ from app.core.database import configure_database, dispose_engine
 from app.dependencies import get_db
 from tests.conftest import BACKEND_DIR
 
+# Emptied around each test, in FK order (jobs before companies).
+USER_TABLES = (
+    "candidate_profiles", "agent_runs", "llm_cache_entries", "discovery_runs", "jobs", "companies",
+)  # fmt: skip
+
 
 @pytest.fixture(scope="session")
 def migrated_db_url(test_database_url):
@@ -48,7 +53,7 @@ async def db_conn(migrated_db_url, make_app):
     # Start every test from empty user data (inside the rolled-back transaction).
     from sqlalchemy import text
 
-    for table in ("candidate_profiles", "agent_runs", "llm_cache_entries"):
+    for table in USER_TABLES:
         await conn.execute(text(f"DELETE FROM {table}"))
     try:
         yield conn
@@ -88,9 +93,6 @@ def build_db_app(make_app, migrated_db_url, db_conn):
 @pytest.fixture()
 def db_app(build_db_app):
     return build_db_app()
-
-
-USER_TABLES = ("candidate_profiles", "agent_runs", "llm_cache_entries")
 
 
 @pytest.fixture()

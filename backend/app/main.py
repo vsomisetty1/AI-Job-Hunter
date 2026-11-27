@@ -33,6 +33,9 @@ OPENAPI_TAGS = [
     {"name": "settings", "description": "Job-search preferences (single row)."},
     {"name": "resumes", "description": "Upload, parse, version, edit and download resumes."},
     {"name": "profile", "description": "The candidate profile generated from your resume."},
+    {"name": "jobs", "description": "Search and inspect discovered jobs."},
+    {"name": "companies", "description": "Company job boards to crawl (Greenhouse, Lever, Ashby)."},
+    {"name": "discovery", "description": "Run discovery, follow runs, connector health."},
     {"name": "system", "description": "App info, scheduled jobs and background tasks."},
 ]
 
@@ -61,7 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.exception("could not recover interrupted work at startup")
     app.state.task_manager = BackgroundTaskManager()
     app.state.scheduler = SchedulerService(enabled=settings.scheduler_enabled)
-    register_jobs(app.state.scheduler, settings)
+    register_jobs(app.state.scheduler, settings, app.state.discovery)
     app.state.scheduler.start()
     logger.info(
         "%s %s started (env=%s, auth=%s)",
@@ -75,6 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         app.state.scheduler.shutdown()
         await app.state.task_manager.shutdown()
+        await app.state.http.aclose()
         await dispose_engine()
         logger.info("shutdown complete")
 

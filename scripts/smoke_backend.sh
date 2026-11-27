@@ -85,5 +85,28 @@ if [ -n "$TASK" ]; then
 fi
 curl -fsS "$BASE/api/v1/profile" | grep -q '"inference_status":"complete"' || fail "profile not generated"
 echo "ok  profile generated"
+
+# Discovery API (no network needed: the run targets an id that matches no company).
+expect 200 GET /api/v1/jobs
+expect 200 GET "/api/v1/jobs?q=engineer&remote_type=remote&sort=posted"
+expect 200 GET /api/v1/jobs/stats
+expect 404 GET /api/v1/jobs/00000000-0000-0000-0000-000000000000
+expect 200 GET /api/v1/companies
+expect 200 GET /api/v1/companies/directory
+expect 422 POST /api/v1/companies '{"source": "workday", "slug": "x"}'
+expect 200 GET /api/v1/discovery/health
+expect 200 GET /api/v1/discovery/runs
+RUN=$(curl -fsS -X POST -H 'content-type: application/json' \
+  -d '{"company_ids": ["00000000-0000-0000-0000-000000000000"]}' "$BASE/api/v1/discovery/runs") \
+  || fail "could not start a discovery run"
+RUN_ID=$(echo "$RUN" | python -c "import json,sys; print(json.load(sys.stdin)['run_id'])")
+for _ in $(seq 1 60); do
+  RUN_STATUS=$(curl -fsS "$BASE/api/v1/discovery/runs/$RUN_ID" | python -c "import json,sys; print(json.load(sys.stdin)['status'])")
+  [ "$RUN_STATUS" != "running" ] && break
+  sleep 0.5
+done
+[ "$RUN_STATUS" = "succeeded" ] || fail "discovery run ended as $RUN_STATUS"
+echo "ok  discovery run $RUN_STATUS"
+
 grep -q "Traceback" "$LOG" && fail "traceback in server log"
 echo "smoke test passed"
