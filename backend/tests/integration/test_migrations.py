@@ -444,3 +444,54 @@ def test_0007_outcomes_rules_and_downgrade(db):
     names = inspect(eng).get_table_names()
     assert not {"interview_events", "learning_snapshots", "recommendation_states"} & set(names)
     command.upgrade(cfg, "head")
+
+
+def test_0008_pins_approval_mode_and_downgrades(db):
+    """Autonomous mode is not built: a stored AUTONOMOUS_MODE is reset on upgrade,
+    and the database refuses it afterwards (ADR-016)."""
+    import sqlalchemy.exc
+
+    eng, cfg = db
+    command.downgrade(cfg, "0007")
+    with eng.begin() as conn:
+        conn.execute(text("UPDATE settings SET application_mode = 'AUTONOMOUS_MODE'"))
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        j = conn.execute(
+            text(
+                "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                "VALUES (:c, '1', 'Eng', 'https://x.test/1', :h) RETURNING id"
+            ),
+            {"c": c, "h": "e" * 64},
+        ).scalar()
+        conn.execute(
+            text(
+                "INSERT INTO applications (job_id, profile_id, application_mode) "
+                "VALUES (:j, :p, 'AUTONOMOUS_MODE')"
+            ),
+            {"j": j, "p": p},
+        )
+    command.upgrade(cfg, "0008")
+    with eng.connect() as conn:
+        assert conn.execute(text("SELECT application_mode FROM settings")).scalar() == (
+            "APPROVAL_MODE"
+        )
+        assert conn.execute(text("SELECT DISTINCT application_mode FROM applications")).all() == [
+            ("APPROVAL_MODE",)
+        ]
+    for sql in (
+        "UPDATE settings SET application_mode = 'AUTONOMOUS_MODE'",
+        "UPDATE applications SET application_mode = 'AUTONOMOUS_MODE'",
+    ):
+        with pytest.raises(sqlalchemy.exc.IntegrityError), eng.begin() as conn:
+            conn.execute(text(sql))
+    command.downgrade(cfg, "0007")
+    with eng.begin() as conn:  # the 0007 rules allow it again
+        conn.execute(text("UPDATE settings SET application_mode = 'AUTONOMOUS_MODE'"))
+    command.upgrade(cfg, "head")

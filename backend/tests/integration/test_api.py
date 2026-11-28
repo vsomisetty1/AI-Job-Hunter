@@ -170,7 +170,7 @@ async def test_settings_change_rescores_in_the_background(app, client):
 
     # A field the filter and scorer do not read starts no run.
     tasks_before = len(app.state.task_manager.list_tasks())
-    await client.patch("/api/v1/settings", json={"daily_application_cap": 5})
+    await client.patch("/api/v1/settings", json={"willing_to_relocate": True})
     assert len(app.state.task_manager.list_tasks()) == tasks_before
 
 

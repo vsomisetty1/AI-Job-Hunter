@@ -13,7 +13,20 @@ from app.schemas.common import APIModel, ORMModel
 from app.schemas.job import EmploymentType
 
 RemotePreference = Literal["remote_only", "hybrid", "onsite", "any"]
-ApplicationMode = Literal["APPROVAL_MODE", "AUTONOMOUS_MODE"]
+# Autonomous mode is not built: every submission needs the user's confirmation
+# (ADR-014). Migration 0008 enforces this in the database (ADR-016).
+ApplicationMode = Literal["APPROVAL_MODE"]
+
+# Columns kept for a future autonomous mode. They cannot be set through the API
+# until an ADR explicitly enables that mode; the database pins application_mode.
+RESERVED_FOR_AUTONOMOUS_MODE = frozenset(
+    {"application_mode", "auto_apply_threshold", "daily_application_cap"}
+)
+AUTONOMOUS_MODE_DISABLED = (
+    "Autonomous mode is not available: every application is submitted only after you "
+    "confirm it (approval mode). application_mode, auto_apply_threshold and "
+    "daily_application_cap cannot be changed."
+)
 
 # Columns that are NOT NULL in the database: an explicit null is rejected.
 NOT_NULLABLE = frozenset(
@@ -25,9 +38,6 @@ NOT_NULLABLE = frozenset(
         "requires_sponsorship",
         "excluded_companies",
         "excluded_keywords",
-        "application_mode",
-        "auto_apply_threshold",
-        "daily_application_cap",
         "discovery_enabled",
         "claude_scoring_enabled",
         "claude_scoring_min_score",
@@ -77,8 +87,6 @@ class SettingsRead(ORMModel):
     excluded_companies: list[str]
     excluded_keywords: list[str]
     application_mode: ApplicationMode
-    auto_apply_threshold: int
-    daily_application_cap: int
     discovery_enabled: bool
     claude_scoring_enabled: bool
     claude_scoring_min_score: int
@@ -102,15 +110,19 @@ class SettingsUpdate(APIModel):
     requires_sponsorship: bool | None = None
     excluded_companies: list[str] | None = None
     excluded_keywords: list[str] | None = None
-    application_mode: ApplicationMode | None = None
-    auto_apply_threshold: int | None = Field(default=None, ge=0, le=100)
-    daily_application_cap: int | None = Field(default=None, ge=0, le=200)
     discovery_enabled: bool | None = None
     claude_scoring_enabled: bool | None = None
     claude_scoring_min_score: int | None = Field(default=None, ge=0, le=100)
     # null = not stated (relocation answers are then flagged for review)
     willing_to_relocate: bool | None = None
     extra: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_autonomous_mode(cls, data: object) -> object:
+        if isinstance(data, dict) and RESERVED_FOR_AUTONOMOUS_MODE & data.keys():
+            raise ValueError(AUTONOMOUS_MODE_DISABLED)
+        return data
 
     @field_validator("preferred_locations", "excluded_companies", "excluded_keywords")
     @classmethod

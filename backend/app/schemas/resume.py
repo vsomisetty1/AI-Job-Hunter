@@ -16,7 +16,7 @@ class ResumeVersionSummary(ORMModel):
     id: uuid.UUID
     version_number: int
     kind: VersionKind
-    source: str
+    source: Literal["upload", "parser", "user_edit", "tailoring"]
     job_id: uuid.UUID | None
     target_role: str | None
     target_company: str | None

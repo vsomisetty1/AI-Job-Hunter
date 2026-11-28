@@ -43,12 +43,12 @@ class NormalizedJob(BaseModel):
 class CompanyRead(ORMModel):
     id: uuid.UUID
     name: str
-    source: str
+    source: Source
     slug: str
     careers_url: str | None
     is_tracked: bool
     last_crawled_at: datetime | None
-    last_crawl_status: str | None
+    last_crawl_status: Literal["ok", "error", "not_found"] | None
     last_error: str | None
     consecutive_failures: int
     industry: str | None = None
@@ -81,7 +81,7 @@ class JobSummary(BaseModel):
     id: uuid.UUID
     company_id: uuid.UUID
     company_name: str
-    source: str
+    source: Source
     external_id: str
     title: str
     location: str | None

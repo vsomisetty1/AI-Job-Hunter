@@ -26,7 +26,8 @@ from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
 from app.services.lifecycle_service import LifecycleService
 from app.services.outcome_service import OutcomeService
-from app.services.package_service import PackageGenerator, PackageWorkflow
+from app.services.package_generator import PackageGenerator
+from app.services.package_workflow import PackageWorkflow
 from app.services.pipeline_service import JobPipeline
 from app.services.profile_service import ProfileService
 from app.services.resume_processing import ResumeProcessor

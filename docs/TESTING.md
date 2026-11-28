@@ -5,8 +5,10 @@ check means do not merge.
 
 | Job | Steps |
 |---|---|
-| Backend | `pip check`, `ruff check` (incl. bandit security rules), `pip-audit`, `ruff format --check`, `mypy --strict`, `pytest` against a real **Postgres 19** (fails if any test is skipped), then `scripts/smoke_backend.sh` (starts `python -m app`, calls the main endpoints, uploads a resume and waits for the profile) |
-| Frontend | `npm ci`, `npm audit`, `typecheck`, `lint`, `npm test` (Vitest + Testing Library), `next build` |
+| Backend | `pip check`, Chromium install, `ruff check` (incl. bandit security rules), `pip-audit`, `ruff format --check`, API contract current (`scripts/gen_api_contract.py --check`), `mypy --strict`, `pytest` against a real **Postgres 19** (fails if any test is skipped), `scripts/smoke_backend.sh` (starts `python -m app`, calls the main endpoints, uploads a resume and waits for the profile, ...), then `scripts/test_backup_restore.sh` on the smoke test's data |
+| Frontend | `npm ci`, `npm audit`, `typecheck` (incl. the compile-time API contract), `lint`, `npm test` (Vitest + Testing Library, incl. the API path contract), `next build` |
+| Scripts | `shellcheck -S warning` on every shell script |
+| Docker | `docker compose config`, build both images (backend with Chromium), start the stack and wait for health checks, `scripts/smoke_compose.sh` (readiness at the latest migration, frontend security headers, every port on 127.0.0.1, non-root containers, Host allowlist and cross-site refusal, autonomous mode refused, Chromium fills a form inside the image, backup and restore of the Compose volumes) |
 
 Warnings are errors in pytest (`filterwarnings = ["error"]`), so a deprecation from
 our code or a dependency upgrade fails CI instead of being ignored.
@@ -23,8 +25,9 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   when its key is present, and is skipped in CI by marker, not by accident.
 - **CI is extended** when a phase adds something new to verify (Phase 5 added the weekly
   `live-connectors.yml` workflow that runs `tests/live` against the real job boards;
-  Phase 8 installs Chromium in the backend job for the browser tests; Phase 9 builds the
-  Docker images; Phase 10 adds frontend-through-backend e2e).
+  Phase 8 installs Chromium in the backend job for the browser tests; Phase 10 added the
+  API contract, backup round trip, shellcheck and Docker jobs; Phase 12 adds
+  frontend-through-backend e2e).
 - The phase summary states what is **not** covered.
 
 ## Test layout
@@ -112,12 +115,41 @@ Each phase ships its tests and its CI changes in the same commit as the feature:
   dismiss/restore; Learning Agent snapshots stored only when the data changed); migration
   test for 0007 rules and downgrade; frontend `Insights.test.tsx`. The smoke script records
   an outcome and calls every analytics endpoint.
+- Phase 10 (hardening): `tests/unit/test_request_guard.py` (Host allowlist incl. DNS
+  rebinding names, cross-site writes refused for every method and origin variant, allowed
+  writes pass, reads left to CORS, guard in API-key mode, security headers, config rules);
+  `tests/unit/test_settings_schema.py` and `tests/integration/test_foundation_api.py`
+  (autonomous-mode fields refused); `test_migrations.py` (0008 resets a stored
+  AUTONOMOUS_MODE, refuses it afterwards, downgrades); `tests/unit/test_api_contract.py`
+  (generated contract current, type mapping); `tests/integration/test_agent_runs_api.py`;
+  `tests/unit/test_repository_hygiene.py` (no placeholders, one version, release docs
+  linked, every ADR indexed). Frontend: `src/types/contract.ts`,
+  `src/types/contract.test.ts`, `components/activity/Activity.test.tsx`. Scripts:
+  `scripts/test_backup_restore.sh`, `scripts/smoke_compose.sh`.
 - Background re-scoring on settings/profile changes is off in the default test app
   (`rescore_on_change=False`, like the scheduler), because the rolled-back `db_app`
   shares one connection; the tests that cover it use the live-pool app.
 - `tests/live/` (marker `live`, deselected by default) checks the connectors against the
   real platforms: `pytest -m live tests/live`. For the full app, see
   [VALIDATION.md](VALIDATION.md).
+
+## API contract (frontend <-> backend)
+
+`python scripts/gen_api_contract.py` (backend venv, from the repo root) writes
+`frontend/src/types/api.gen.ts` from the backend's OpenAPI spec: one type per schema as the
+backend sends it (every field present) and, for request bodies, as it accepts it (`...Input`),
+plus `API_OPERATIONS`. Then:
+- `tests/unit/test_api_contract.py` fails if the committed file is out of date;
+- `src/types/contract.ts` (typecheck) fails if a hand-written type in `src/types/index.ts`
+  cannot hold what the backend sends, expects a field the backend does not send, or sends a
+  request field the backend rejects. A failure points to the line of the pair; compare the
+  two types there;
+- `src/types/contract.test.ts` calls every function in `src/lib/api/*Api` with fetch mocked
+  and fails if a request's method and path is not a backend operation.
+
+Not covered yet (the backend returns untyped dictionaries): `/insights/summary`,
+`/insights/companies`, `/insights/boards`, `/insights/resumes`, and the free-form JSON in
+`SubmissionDetail.review`/`checkpoint` and agent run summaries.
 
 ## Running locally
 
@@ -127,9 +159,13 @@ ruff check app tests migrations && ruff format --check app tests migrations && m
 python -m playwright install chromium   # once: browser tests and automation
 TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:<password>@localhost:5432/jobhunter_test pytest
 DATABASE_URL=postgresql://jobhunter:<password>@localhost:5432/jobhunter ../scripts/smoke_backend.sh
+DATABASE_URL=postgresql://jobhunter:<password>@localhost:5432/jobhunter ../scripts/test_backup_restore.sh  # replaces that DB's data!
+python ../scripts/gen_api_contract.py --check
 pytest -m live tests/live       # optional: real Greenhouse/Lever/Ashby APIs (needs internet)
 
 cd ../frontend && npm ci && npm run typecheck && npm run lint && npm test && npm run build
+
+cd .. && docker compose up -d --build --wait && scripts/smoke_compose.sh   # backs up and restores the stack
 ```
 
 Create the throwaway test database once: `docker compose exec db createdb -U jobhunter jobhunter_test`.
@@ -148,6 +184,8 @@ for compatibility:
 | apscheduler | 3.11.3 | 4.0 pre-release | 4.x is not stable |
 
 `playwright` (Python) is 1.65.2, the latest; `pytest-playwright` was removed in Phase 8 (a
-sync-API plugin nothing used; the browser tests use their own async fixtures).
+sync-API plugin nothing used; the browser tests use their own async fixtures). The frontend's
+unused `@playwright/test` was removed in Phase 10; Phase 12 adds it back with the e2e tests.
+Docker base images: `python:3.14-slim`, `node:26-alpine`, `postgres:19-alpine`.
 
 Re-check these when upgrading.

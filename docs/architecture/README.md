@@ -1,7 +1,8 @@
 # Architecture decision records
 
-Each ADR records a decision that is already reflected in the code (as of 2026-11-27,
-commit `e505d36`), why it was made, and what it costs. To change a decision, write a new
+Each ADR records a decision that is already reflected in the code, why it was made,
+and what it costs (ADR-001 to ADR-010 were written at commit `e505d36`; later ones with
+their phase). To change a decision, write a new
 ADR that supersedes the old one; don't rewrite history.
 
 | ADR | Decision |
@@ -21,3 +22,4 @@ ADR that supersedes the old one; don't rewrite history.
 | [013](ADR-013.md) | Data lifecycle and storage cleanup (MVP validation) |
 | [014](ADR-014.md) | Application automation in approval mode, by meaning, with checkpoints (Phase 8) |
 | [015](ADR-015.md) | Learning from your own outcomes, with statistical gates (Phase 9) |
+| [016](ADR-016.md) | Hardening for release: local request guard, approval mode only, API contract, containers, backups (Phase 10) |

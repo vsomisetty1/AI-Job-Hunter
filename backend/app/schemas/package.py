@@ -90,6 +90,13 @@ class CoverLetterRead(ORMModel):
     created_at: datetime
 
 
+class AnswerEvidence(BaseModel):
+    """A fact an answer is based on: where it came from and what it says."""
+
+    source: str
+    fact: str
+
+
 class AnswerRead(ORMModel):
     id: uuid.UUID
     question: str
@@ -98,7 +105,7 @@ class AnswerRead(ORMModel):
     source: Literal["profile", "settings", "rules", "llm", "user"]
     confidence: float | None
     needs_review: bool
-    evidence: list[dict[str, Any]]
+    evidence: list[AnswerEvidence]
     updated_at: datetime
 
 

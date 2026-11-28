@@ -1,18 +1,25 @@
 # AI Job Hunter
 
-Autonomous job-search agent: parse a resume, discover jobs (Greenhouse, Lever, Ashby),
-score them with Claude, tailor resumes, generate application packages, and apply
-(approval or autonomous mode). Workday can be added later via the connector and
-platform-adapter interfaces.
+Personal job-search agent that runs on your own machine: parse a resume, discover jobs
+(Greenhouse, Lever, Ashby), filter and score them (rule-based, optionally with Claude),
+tailor resumes, generate application packages, fill application forms for you to review,
+and learn from your outcomes. Every submission needs your explicit confirmation
+(approval mode); there is no autonomous mode (ADR-014, ADR-016).
 
 **Stack:** Next.js 16 + React 19 + TypeScript + Tailwind 4 (Node 26) · FastAPI on Python 3.14 · PostgreSQL 19 · Supabase Storage · Playwright · Claude API · Docker
 
-**Start here:** [PROJECT_STATE.md](PROJECT_STATE.md) (what exists now),
-[AI_CONTEXT.md](AI_CONTEXT.md) (objectives, conventions, AI strategy) and
-[docs/architecture/](docs/architecture/) (ADR-001 to ADR-010).
+**Version 0.10.0.** **Start here:** [PROJECT_STATE.md](PROJECT_STATE.md) (what exists now and
+the roadmap), [AI_CONTEXT.md](AI_CONTEXT.md) (objectives, conventions, AI strategy),
+[docs/architecture/](docs/architecture/) (ADR-001 to ADR-016).
 
-CI runs lint, tests against Postgres 19, a real-server smoke test and the frontend build
-on every push: see [docs/TESTING.md](docs/TESTING.md).
+**Run, back up, release:** [DEPLOYMENT.md](DEPLOYMENT.md) (Docker Compose or native, security
+model), [BACKUP_AND_RECOVERY.md](BACKUP_AND_RECOVERY.md), [RELEASE_READINESS.md](RELEASE_READINESS.md)
+(what is verified, what is not, the gates to 1.0).
+
+CI runs on every push: lint, strict types, dependency audits, tests on Postgres 19 (incl.
+real Chromium), the API contract between frontend and backend, a real-server smoke test, a
+backup/restore round trip, shellcheck, the frontend build, and the Docker images with a
+Compose smoke test: see [docs/TESTING.md](docs/TESTING.md).
 
 ## Build status
 
@@ -28,11 +35,14 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | MVP | Validation on a real resume and real jobs | Done |
 | 8 | Application automation, approval mode (Agent 10, Playwright) | Done |
 | 9 | Learning and insights (interview and outcome tracking, Learning Agent, analytics, recommendations) | Done |
-| Next | Autonomous mode (only after approval mode is validated in real use) | Pending |
-| Later | Deployment (containers, docs) | Pending |
-| Later | End-to-end testing through the frontend | Pending |
+| 10 | Hardening and release readiness (local request guard, approval mode only, API contract, Docker/Compose, backup and restore, agent activity page) | Done |
+| 11 | Real-use validation: real applications in approval mode, outcomes recorded | Next |
+| 12 | End-to-end tests through the frontend (Playwright on the Compose stack) | Planned |
+| 13 | Claude Code commands for AI work under the Pro plan (via the API) | Planned |
+| 1.0 | Release | Planned |
 
-Files containing `PLACEHOLDER - implemented in PHASE N` are stubs filled in by that phase.
+The roadmap with exit criteria, and what comes after 1.0 (autonomous mode only behind a
+new ADR, Workday), is in [PROJECT_STATE.md](PROJECT_STATE.md#13-roadmap-to-10).
 
 ## Resume intelligence (Phase 4)
 
@@ -247,9 +257,32 @@ API: `GET /api/v1/applications`, `GET /api/v1/applications/{id}`,
 `PUT /api/v1/insights/recommendations/{key}/state`, `POST /api/v1/insights/refresh`,
 `PATCH /api/v1/companies/{id}` with `industry`.
 
-## Run it locally
+## Hardening and release readiness (Phase 10)
 
-Needs Docker, Python 3.14 and Node 26.
+- **Local-only by construction** (ADR-016): requests for any host name other than
+  `localhost`/`127.0.0.1`/`::1` are refused (DNS rebinding), writes from other web origins
+  are refused (CSRF), and pages and API responses cannot be framed. Compose publishes every
+  port on 127.0.0.1 only.
+- **Approval mode only**: the settings API refuses `application_mode`, `auto_apply_threshold`
+  and `daily_application_cap`; migration 0008 makes the database refuse `AUTONOMOUS_MODE`.
+- **API contract**: `frontend/src/types/api.gen.ts` is generated from the backend's OpenAPI
+  spec (`python scripts/gen_api_contract.py`); typecheck and tests fail when the frontend's
+  types or calls drift from the backend.
+- **Docker**: real backend and frontend images and a full Compose stack (DEPLOYMENT.md).
+- **Backups**: `scripts/backup.sh` / `scripts/restore.sh`, tested by CI (BACKUP_AND_RECOVERY.md).
+- **Agent activity page** (`/activity`, `GET /api/v1/agent-runs{,/summary,/agents}`): every
+  agent run and pipeline stage with outcome, duration, tokens and cost.
+
+## Run it
+
+With Docker only (DEPLOYMENT.md):
+
+```bash
+cp .env.example .env                    # then set POSTGRES_PASSWORD
+docker compose up -d --build --wait     # http://localhost:3000
+```
+
+For development (Docker, Python 3.14 and Node 26):
 
 ```bash
 cp .env.example .env      # then set POSTGRES_PASSWORD (same password inside DATABASE_URL)
@@ -267,8 +300,9 @@ python -m app             # binds BACKEND_HOST:BACKEND_PORT, one worker
 
 - Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
 - Probes: `GET /health` (liveness), `GET /health/ready` (database + migrations + scheduler)
-- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/scoring`, `/api/v1/packages`, `/api/v1/automation`, `/api/v1/applications`, `/api/v1/insights`, `/api/v1/system/{info,jobs,tasks,storage}`
-- Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
+- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/scoring`, `/api/v1/packages`, `/api/v1/automation`, `/api/v1/applications`, `/api/v1/insights`, `/api/v1/agent-runs`, `/api/v1/system/{info,jobs,tasks,storage}`
+- Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`;
+  `ALLOWED_HOSTS` and `CORS_ORIGINS` guard every request (DEPLOYMENT.md, section 4)
 - Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
 
 Layout (imports only point down; `tests/unit/test_architecture.py` enforces it):
@@ -298,7 +332,7 @@ Tests, lint and smoke test: see [docs/TESTING.md](docs/TESTING.md).
 cd frontend && npm ci && npm run dev    # http://localhost:3000 (backend on :8000)
 ```
 
-## Database quick start (Phase 2)
+## Database
 
 ```bash
 cp .env.example .env            # REQUIRED: set POSTGRES_PASSWORD (and keep DATABASE_URL in sync)
@@ -319,7 +353,12 @@ TEST_DATABASE_URL=postgresql+psycopg2://jobhunter:change_me@localhost:5432/jobhu
   pytest tests/integration/test_migrations.py
 ```
 
-**Schema workflow.** `backend/schema.sql` is the readable reference for the current schema. Migration `0001` executes a frozen copy (`backend/migrations/sql/0001_initial.sql`); a unit test keeps the two identical. **Never edit a migration that has been applied: add a new Alembic revision instead** (then update `schema.sql` and the test that pins it). The ORM models mirror the schema. Requires PostgreSQL 15+ (developed and tested on 19).
+**Schema workflow.** `backend/schema.sql` is the readable reference for the schema at the
+latest migration (0008); an integration test checks it against a migrated database. Each
+Alembic revision executes a frozen SQL file in `backend/migrations/sql/`, pinned by SHA-256 in
+`tests/unit/test_schema_sql.py`. **Never edit a migration that has been applied: add a new
+revision instead** (then update `schema.sql`, the ORM models and the pin). Requires
+PostgreSQL 15+ (developed and tested on 19).
 
 **Upgrading from the Postgres 16 container.** `docker compose` now uses a new volume
 (`pgdata19`); the old `pgdata` volume is left as is. Nothing is migrated automatically.

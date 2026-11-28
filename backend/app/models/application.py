@@ -98,9 +98,7 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "automation_state IN ('pending', 'in_progress', 'needs_manual', 'failed', 'completed')",
             name="ck_applications_automation_state",
         ),
-        CheckConstraint(
-            "application_mode IN ('APPROVAL_MODE', 'AUTONOMOUS_MODE')", name="ck_applications_mode"
-        ),
+        CheckConstraint("application_mode IN ('APPROVAL_MODE')", name="ck_applications_mode"),
         CheckConstraint("attempts >= 0", name="ck_applications_attempts"),
         CheckConstraint(
             "jsonb_typeof(checkpoint) = 'object'", name="ck_applications_checkpoint_json"

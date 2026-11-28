@@ -200,9 +200,24 @@ export interface CandidateProfile {
   updated_at: string;
 }
 
+/** Seniority levels the profile accepts (backend: schemas/candidate_profile.Seniority). */
+export type Seniority =
+  | "intern"
+  | "entry"
+  | "junior"
+  | "mid"
+  | "senior"
+  | "staff"
+  | "principal"
+  | "lead"
+  | "manager"
+  | "director"
+  | "executive";
+
 export type ProfileUpdate = Partial<
-  Pick<
-    CandidateProfile,
+  Omit<
+    Pick<
+      CandidateProfile,
     | "full_name"
     | "email"
     | "phone"
@@ -217,9 +232,11 @@ export type ProfileUpdate = Partial<
     | "industries"
     | "inferred_roles"
     | "transferable_roles"
-    | "education_summary"
-    | "certification_summary"
-  >
+      | "education_summary"
+      | "certification_summary"
+    >,
+    "seniority"
+  > & { seniority: Seniority | null }
 >;
 
 export interface TaskAccepted {
@@ -495,9 +512,8 @@ export interface Settings {
   requires_sponsorship: boolean;
   excluded_companies: string[];
   excluded_keywords: string[];
-  application_mode: "APPROVAL_MODE" | "AUTONOMOUS_MODE";
-  auto_apply_threshold: number;
-  daily_application_cap: number;
+  // Always APPROVAL_MODE: autonomous mode is not built (ADR-016).
+  application_mode: "APPROVAL_MODE";
   discovery_enabled: boolean;
   claude_scoring_enabled: boolean;
   claude_scoring_min_score: number;
@@ -507,7 +523,10 @@ export interface Settings {
   updated_at: string;
 }
 
-export type SettingsUpdate = Partial<Omit<Settings, "created_at" | "updated_at">>;
+// application_mode is not editable: autonomous mode is not built (ADR-016).
+export type SettingsUpdate = Partial<
+  Omit<Settings, "created_at" | "updated_at" | "application_mode">
+>;
 
 // --------------------------------------------- Phase 7: application packages
 export type PackageStatus =
@@ -1009,4 +1028,45 @@ export interface HistoryPoint {
   offer_rate: number | null;
   insights: number;
   recommendations: number;
+}
+
+// ------------------------------------------------------------ agent activity
+export type AgentRunStatus = "running" | "succeeded" | "failed" | "cancelled";
+
+export interface AgentRun {
+  id: string;
+  agent_name: string;
+  status: AgentRunStatus;
+  job_id: string | null;
+  application_id: string | null;
+  input_summary: Record<string, unknown>;
+  output_summary: Record<string, unknown>;
+  error: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  started_at: string;
+  finished_at: string | null;
+  duration_ms: number | null;
+}
+
+export interface AgentStat {
+  agent_name: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  avg_duration_ms: number | null;
+  last_run_at: string | null;
+}
+
+export interface AgentActivitySummary {
+  days: number;
+  agents: AgentStat[];
+  total_runs: number;
+  failed_runs: number;
+  total_cost_usd: number;
 }

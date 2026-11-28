@@ -33,7 +33,7 @@ from app.schemas.package import (
     RegeneratePackageRequest,
     RejectPackageRequest,
 )
-from app.services.package_service import PackageGenerator
+from app.services.package_generator import PackageGenerator
 
 router = APIRouter(prefix="/packages", tags=["packages"], responses=ERROR_RESPONSES)
 NOT_FOUND: dict[int | str, dict[str, Any]] = {

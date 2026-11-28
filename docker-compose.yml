@@ -1,4 +1,17 @@
-# Phase 2: database only. Phase 9 adds backend, frontend and the full stack.
+# AI Job Hunter: the whole app on your machine (see DEPLOYMENT.md).
+#
+#   docker compose up -d --build --wait     database + backend + frontend
+#   docker compose up -d --wait db          database only (for scripts/dev.sh)
+#
+# Every port is published on 127.0.0.1 only: the app has no login (AUTH_MODE=none)
+# and must not be reachable from the network (ADR-004, ADR-016). Never change these
+# to "0.0.0.0:" or a bare port.
+#
+# Data lives in two named volumes: pgdata19 (database) and appdata (stored files:
+# resumes, generated documents, screenshots). `docker compose down` keeps them;
+# `down -v` DELETES them. Back up with scripts/backup.sh (BACKUP_AND_RECOVERY.md).
+name: ai-job-hunter
+
 services:
   db:
     image: postgres:19-alpine
@@ -8,8 +21,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-jobhunter}
     ports:
-      # Loopback only: never expose the database to the network.
-      - "127.0.0.1:5432:5432"
+      # For a backend running natively (scripts/dev.sh). Loopback only.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       # Postgres 18+ images keep data under /var/lib/postgresql/<major>/, so the
       # volume mounts the parent. New volume name: the old Postgres 16 volume
@@ -21,5 +34,60 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_BROWSER: ${INSTALL_BROWSER:-true}
+    image: ai-job-hunter-backend:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    # .env supplies the optional settings (Claude key, discovery, automation...).
+    env_file:
+      - path: .env
+        required: false
+    # Container-specific values win over .env.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-jobhunter}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-jobhunter}
+      APP_ENV: production
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: "8000"
+      CONTAINER_LOOPBACK_ONLY: "true"
+      LOCAL_STORAGE_DIR: /data/storage
+      # No display in a container: headless only (run natively to solve CAPTCHAs).
+      AUTOMATION_HEADLESS: "true"
+      AUTOMATION_BROWSER_PATH: ""
+      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-3000},http://127.0.0.1:${FRONTEND_PORT:-3000}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - appdata:/data
+    # Chromium needs more shared memory than Docker's 64 MB default.
+    shm_size: "1gb"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # What your browser calls: the backend port published above.
+        NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}
+    image: ai-job-hunter-frontend:local
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp
+
 volumes:
   pgdata19:
+  appdata:

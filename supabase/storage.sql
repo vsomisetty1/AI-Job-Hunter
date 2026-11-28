@@ -1,4 +1,6 @@
--- Supabase Storage bucket for uploaded resumes (run once in the SQL editor).
+-- Supabase Storage bucket for AI Job Hunter's files (run in the SQL editor; safe to
+-- re-run: it updates the bucket's settings). Holds uploaded resumes, generated
+-- PDF/DOCX resumes and cover letters, and application-form screenshots (PNG).
 --
 -- The backend uses the service-role key from the server only, so the bucket is
 -- PRIVATE and has no public or anonymous access policies: the browser never
@@ -11,7 +13,8 @@ values (
   10485760,  -- 10 MB, matches MAX_UPLOAD_MB
   array[
     'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/png'  -- automation screenshots (Phase 8)
   ]
 )
 on conflict (id) do update

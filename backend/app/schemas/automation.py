@@ -28,7 +28,7 @@ class SubmitRequest(APIModel):
 
 class FieldEditRequest(APIModel):
     key: str = Field(min_length=1, max_length=500)
-    value: str | bool | list[str] = Field(description="Text, an option label, or yes/no")
+    value: FieldValue = Field(description="Text, an option label, or yes/no")
 
 
 class SubmissionStarted(BaseModel):
@@ -76,15 +76,31 @@ class SubmissionSummary(BaseModel):
     updated_at: datetime
 
 
+FieldValue = str | bool | list[str]
+
+
+class EditableField(BaseModel):
+    """A field the user can change in review (from the run's checkpoint)."""
+
+    key: str
+    label: str
+    kind: str
+    required: bool
+    status: str
+    value: FieldValue
+    reason: str
+    options: list[str]
+    edited: bool
+
+
 class SubmissionDetail(SubmissionSummary):
     review: dict[str, Any]
-    edits: dict[str, Any]
+    edits: dict[str, FieldValue]
     checkpoint: dict[str, Any]
     screenshots: list[Screenshot]
     confirmation_text: str | None
     recovery_hint: str | None
-    # Fields the user can change in review: key, label, kind, options, value.
-    editable_fields: list[dict[str, Any]]
+    editable_fields: list[EditableField]
 
 
 class ReadyPackage(BaseModel):

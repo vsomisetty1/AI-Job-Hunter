@@ -5,6 +5,7 @@ optional here and checked by the features that use them.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -39,7 +40,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Job Hunter API"
-    app_version: str = "0.9.0"
+    app_version: str = "0.10.0"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     log_json: bool | None = None  # default: JSON in production only
@@ -57,6 +58,16 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
     )
+    # Host names the API answers to (Host header, port ignored). Blocks DNS
+    # rebinding: another site's name pointed at 127.0.0.1 is refused. "*" turns
+    # the check off and is only accepted with AUTH_MODE=api_key.
+    allowed_hosts: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["localhost", "127.0.0.1", "::1"]
+    )
+    # Set only inside the container image: the backend binds 0.0.0.0 inside its
+    # container, and Compose publishes the port on the host's 127.0.0.1 only, so
+    # AUTH_MODE=none stays reachable from this machine alone (ADR-016).
+    container_loopback_only: bool = False
 
     # repr=False: the URL holds the database password; keep it out of reprs and logs.
     database_url: str = Field(repr=False)
@@ -125,13 +136,12 @@ class Settings(BaseSettings):
     # File storage. "local" keeps files under LOCAL_STORAGE_DIR; "supabase"
     # uses a private Supabase Storage bucket.
     storage_backend: Literal["local", "supabase"] = "local"
+    # A relative path is resolved against backend/ (see local_storage_path), so
+    # the app, the backup script and the docs all mean the same folder.
     local_storage_dir: str = "./data/storage"
     supabase_url: str | None = None
     supabase_service_role_key: SecretStr | None = None
     supabase_bucket: str = "job-hunter"
-
-    playwright_headless: bool = True
-    browser_state_dir: str = "./browser_state"
 
     scheduler_enabled: bool = True
     # Re-filter and re-score stored jobs in the background when the settings
@@ -148,7 +158,7 @@ class Settings(BaseSettings):
     def _normalize_db_url(cls, v: str) -> str:
         return normalize_database_url(v.strip())
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "allowed_hosts", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
         if isinstance(v, str):
@@ -161,11 +171,16 @@ class Settings(BaseSettings):
             key = self.api_key.get_secret_value() if self.api_key else ""
             if len(key) < 32:
                 raise ValueError("AUTH_MODE=api_key needs API_KEY of at least 32 characters")
-        elif not self.is_loopback_host:
-            raise ValueError(
-                "AUTH_MODE=none only allows BACKEND_HOST=127.0.0.1/localhost/::1; "
-                "set AUTH_MODE=api_key to listen on other interfaces"
-            )
+        else:
+            if not (self.is_loopback_host or self.container_loopback_only):
+                raise ValueError(
+                    "AUTH_MODE=none only allows BACKEND_HOST=127.0.0.1/localhost/::1; "
+                    "set AUTH_MODE=api_key to listen on other interfaces"
+                )
+            if "*" in self.allowed_hosts:
+                raise ValueError("ALLOWED_HOSTS=* needs AUTH_MODE=api_key")
+        if not self.allowed_hosts:
+            raise ValueError("ALLOWED_HOSTS must name at least one host")
         return self
 
     @model_validator(mode="after")
@@ -177,6 +192,11 @@ class Settings(BaseSettings):
                 "STORAGE_BACKEND=supabase needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
             )
         return self
+
+    @property
+    def local_storage_path(self) -> Path:
+        path = Path(self.local_storage_dir).expanduser()
+        return path if path.is_absolute() else (BACKEND_DIR / path).resolve()
 
     @property
     def max_upload_bytes(self) -> int:

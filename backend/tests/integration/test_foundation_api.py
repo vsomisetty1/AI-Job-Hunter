@@ -41,7 +41,24 @@ async def test_get_settings_returns_seeded_defaults(db_app, client_for):
     assert r.status_code == 200
     body = r.json()
     assert body["application_mode"] == "APPROVAL_MODE"
-    assert body["auto_apply_threshold"] == 80
+    assert "auto_apply_threshold" not in body  # reserved for a future autonomous mode
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"application_mode": "AUTONOMOUS_MODE"},
+        {"auto_apply_threshold": 50},
+        {"daily_application_cap": 5},
+    ],
+)
+async def test_autonomous_mode_cannot_be_configured(db_app, client_for, body):
+    async with client_for(db_app) as c:
+        r = await c.patch("/api/v1/settings", json=body)
+        after = (await c.get("/api/v1/settings")).json()
+    assert r.status_code == 422
+    assert "Autonomous mode is not available" in r.text
+    assert after["application_mode"] == "APPROVAL_MODE"
 
 
 async def test_patch_settings_persists_and_bumps_updated_at(db_app, client_for):
@@ -83,7 +100,7 @@ async def test_settings_row_recreated_if_missing(db_app, client_for):
     async with client_for(db_app) as c:
         r = await c.get("/api/v1/settings")
     assert r.status_code == 200
-    assert r.json()["daily_application_cap"] == 10
+    assert r.json()["remote_preference"] == "any"
 
 
 async def test_database_check_violation_maps_to_422(db_app, client_for):
@@ -96,16 +113,16 @@ async def test_database_check_violation_maps_to_422(db_app, client_for):
     class Unchecked(SettingsService):
         async def update(self, patch):
             current = await self.repo.get_singleton()
-            return await self.repo.update(current, {"daily_application_cap": 999})
+            return await self.repo.update(current, {"claude_scoring_min_score": 999})
 
     def _svc(db=Depends(get_db)):
         return Unchecked(db)
 
     db_app.dependency_overrides[get_settings_service] = _svc
     async with client_for(db_app) as c:
-        r = await c.patch("/api/v1/settings", json={"daily_application_cap": 5})
+        r = await c.patch("/api/v1/settings", json={"claude_scoring_min_score": 5})
     assert r.status_code == 422
-    assert r.json()["error"]["details"] == {"constraint": "ck_settings_cap"}
+    assert r.json()["error"]["details"] == {"constraint": "ck_settings_claude_min_score"}
 
 
 async def _runs(ids):

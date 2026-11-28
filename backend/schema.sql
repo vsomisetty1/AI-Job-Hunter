@@ -1,7 +1,7 @@
 -- =====================================================================
 -- AI Job Hunter - PostgreSQL schema (requires PostgreSQL 15+)
 --
--- Reference copy of the schema at Alembic head (migrations 0001-0007).
+-- Reference copy of the schema at Alembic head (migrations 0001-0008).
 -- Migrations execute frozen SQL files in migrations/sql/; an integration
 -- test checks that this file and the migrated database have the same
 -- catalog (columns, constraints, indexes, triggers).
@@ -471,7 +471,7 @@ CREATE TABLE applications (
     CONSTRAINT ck_applications_automation_state
         CHECK (automation_state IN ('pending', 'in_progress', 'needs_manual', 'failed', 'completed')),
     CONSTRAINT ck_applications_mode
-        CHECK (application_mode IN ('APPROVAL_MODE', 'AUTONOMOUS_MODE')),
+        CHECK (application_mode IN ('APPROVAL_MODE')),
     CONSTRAINT ck_applications_attempts CHECK (attempts >= 0),
     CONSTRAINT ck_applications_checkpoint_json CHECK (jsonb_typeof(checkpoint) = 'object'),
     CONSTRAINT ck_applications_submitted_at
@@ -728,6 +728,7 @@ CREATE TABLE settings (
     excluded_companies    text[] NOT NULL DEFAULT '{}',
     excluded_keywords     text[] NOT NULL DEFAULT '{}',
     application_mode      text NOT NULL DEFAULT 'APPROVAL_MODE',
+    -- Reserved for a future autonomous mode (not built; ADR-016): not editable.
     auto_apply_threshold  smallint NOT NULL DEFAULT 80,
     daily_application_cap smallint NOT NULL DEFAULT 10,
     discovery_enabled     boolean NOT NULL DEFAULT true,
@@ -745,7 +746,7 @@ CREATE TABLE settings (
     CONSTRAINT ck_settings_remote
         CHECK (remote_preference IN ('remote_only', 'hybrid', 'onsite', 'any')),
     CONSTRAINT ck_settings_mode
-        CHECK (application_mode IN ('APPROVAL_MODE', 'AUTONOMOUS_MODE')),
+        CHECK (application_mode IN ('APPROVAL_MODE')),
     CONSTRAINT ck_settings_threshold CHECK (auto_apply_threshold BETWEEN 0 AND 100),
     CONSTRAINT ck_settings_cap CHECK (daily_application_cap BETWEEN 0 AND 200),
     CONSTRAINT ck_settings_claude_min_score CHECK (claude_scoring_min_score BETWEEN 0 AND 100),

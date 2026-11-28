@@ -35,3 +35,6 @@ storage_cache/
 
 # MVP validation reports (contain personal data)
 validation-output/
+
+# Backups (personal data; see BACKUP_AND_RECOVERY.md)
+backups/

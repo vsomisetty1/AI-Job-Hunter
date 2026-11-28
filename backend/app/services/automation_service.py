@@ -17,10 +17,8 @@ Rules this module enforces (and the database backs up):
 """
 
 import logging
-import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -31,29 +29,22 @@ from app.agents.agent_10_application_agent import (
 )
 from app.automation.browser_manager import BrowserManager, SessionRegistry
 from app.automation.checkpoints import Checkpoint
-from app.automation.field_matcher import AnswerFact, ApplicantFacts
-from app.automation.form_engine import FilePayload
+from app.automation.field_matcher import ApplicantFacts
 from app.automation.platforms import adapter_for
 from app.automation.recovery import classify, hint
 from app.core.config import Settings
 from app.core.exceptions import ConflictError, DomainValidationError, NotFoundError
 from app.models.application import Application
-from app.models.application_answer import ApplicationAnswer
 from app.models.application_package import ApplicationPackage
 from app.models.application_submission import (
     ACTIVE_STATUSES,
     ApplicationSubmission,
 )
-from app.models.candidate_profile import CandidateProfile
 from app.models.company import Company
-from app.models.cover_letter import CoverLetter
 from app.models.job import Job
-from app.models.resume_version import ResumeVersion
-from app.models.setting import Setting
 from app.repositories.automation_repository import (
     BrowserSessionRepository,
     SubmissionRepository,
-    SubmissionRow,
 )
 from app.repositories.package_repository import PackageRepository
 from app.schemas.automation import (
@@ -61,127 +52,24 @@ from app.schemas.automation import (
     AutomationQueue,
     AutomationStatus,
     ReadyPackage,
-    Screenshot,
     SubmissionDetail,
     SubmissionSummary,
 )
 from app.schemas.common import Page
-from app.schemas.parsed_resume import ParsedResume
+from app.services.automation_facts import applicant_facts
+from app.services.automation_recorder import DbRecorder
+from app.services.automation_views import (
+    latest_per_application,
+    submission_detail,
+    submission_summary,
+)
 from app.storage import StorageBackend
 
 logger = logging.getLogger(__name__)
 
-SCREENSHOT_PREFIX = "automation"
-MAX_SCREENSHOTS = 30
-_US_STATE = re.compile(
-    r"\b(A[LKZR]|C[AOT]|D[EC]|FL|GA|HI|I[ADLN]|K[SY]|LA|M[ADEINOST]|N[CDEHJMVY]|O[HKR]|PA|RI|"
-    r"S[CD]|T[NX]|UT|V[AT]|W[AIVY])\b|\b(USA|U\.S\.A?\.?|United States)\b"
-)
-
 
 def _now() -> datetime:
     return datetime.now(UTC)
-
-
-def country_from(location: str | None) -> str | None:
-    """The country a free-text location is in, when it is obvious (US only)."""
-    if location and _US_STATE.search(location):
-        return "United States"
-    return None
-
-
-def _split_name(name: str | None) -> tuple[str | None, str | None]:
-    parts = (name or "").split()
-    if len(parts) < 2:
-        return (parts[0] if parts else None), None
-    return parts[0], parts[-1]
-
-
-_MONTHS = (
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
-)  # fmt: skip
-
-
-def _year_month(date: str | None) -> tuple[str | None, str | None]:
-    """'2022-08' -> ('2022', 'August')."""
-    m = re.match(r"^(\d{4})(?:-(\d{2}))?", date or "")
-    if not m:
-        return None, None
-    month = _MONTHS[int(m.group(2)) - 1] if m.group(2) and 1 <= int(m.group(2)) <= 12 else None
-    return m.group(1), month
-
-
-def _file_name(name: str | None, doc: str) -> str:
-    base = "_".join(re.findall(r"[A-Za-z0-9]+", name or "")) or "Applicant"
-    return f"{base}_{doc}.pdf"
-
-
-class DbRecorder:
-    """Agent 10's recorder: each call is its own short transaction, so the
-    review screen shows progress while a run is still going."""
-
-    def __init__(
-        self,
-        sessionmaker: async_sessionmaker[AsyncSession],
-        storage: StorageBackend,
-        submission_id: uuid.UUID,
-    ) -> None:
-        self.sessionmaker = sessionmaker
-        self.storage = storage
-        self.submission_id = submission_id
-
-    async def log(self, level: str, step: str, message: str, **detail: Any) -> None:
-        logger.log(
-            {"debug": logging.DEBUG, "warning": logging.WARNING, "error": logging.ERROR}.get(
-                level, logging.INFO
-            ),
-            "automation %s: %s",
-            step,
-            message,
-            extra={"submission_id": str(self.submission_id)},
-        )
-        async with self.sessionmaker() as session, session.begin():
-            await SubmissionRepository(session).add_log(
-                self.submission_id, level, step, message, _jsonable(detail)
-            )
-
-    async def checkpoint(self, step: str, checkpoint: Checkpoint) -> None:
-        async with self.sessionmaker() as session, session.begin():
-            sub = await session.get(ApplicationSubmission, self.submission_id)
-            if sub is not None:
-                sub.step, sub.checkpoint = step, checkpoint.as_json()
-
-    async def screenshot(self, step: str, label: str, png: bytes) -> None:
-        async with self.sessionmaker() as session, session.begin():
-            sub = await session.get(ApplicationSubmission, self.submission_id, with_for_update=True)
-            if sub is None:
-                return
-            n = len(sub.screenshots) + 1
-            if n > MAX_SCREENSHOTS:
-                return
-            path = f"{SCREENSHOT_PREFIX}/{self.submission_id}/{n:02d}-{step}.png"
-            await self.storage.put(path, png, "image/png")
-            sub.screenshots = [
-                *sub.screenshots,
-                {"path": path, "step": step, "label": label, "at": _now().isoformat()},
-            ]
-
-    async def save_browser_state(self, platform: str, state: dict[str, Any]) -> None:
-        if not state:
-            return
-        async with self.sessionmaker() as session, session.begin():
-            await BrowserSessionRepository(session).save(platform, state, _now())
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(k): _jsonable(v) for k, v in value.items()}
-    if isinstance(value, list | tuple):
-        return [_jsonable(v) for v in value]
-    if isinstance(value, str | int | float | bool) or value is None:
-        return value
-    return str(value)
 
 
 class AutomationService:
@@ -240,8 +128,13 @@ class AutomationService:
                 for r in ready
                 if r.application_id not in failed_apps
             ],
-            active=[self._summary(r) for r in active],
-            needs_attention=[self._summary(r) for r in _latest_per_application(attention)],
+            active=[
+                submission_summary(r, live=self.registry.is_live(r.submission.id)) for r in active
+            ],
+            needs_attention=[
+                submission_summary(r, live=self.registry.is_live(r.submission.id))
+                for r in latest_per_application(attention)
+            ],
         )
 
     async def history(
@@ -251,14 +144,21 @@ class AutomationService:
             rows, total = await SubmissionRepository(session).search(
                 statuses=statuses, limit=limit, offset=offset
             )
-        return Page(items=[self._summary(r) for r in rows], total=total, limit=limit, offset=offset)
+        return Page(
+            items=[
+                submission_summary(r, live=self.registry.is_live(r.submission.id)) for r in rows
+            ],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
 
     async def detail(self, submission_id: uuid.UUID) -> SubmissionDetail:
         async with self.sessionmaker() as session:
             row = await SubmissionRepository(session).get_row(submission_id)
         if row is None:
             raise NotFoundError("Submission not found", {"submission_id": str(submission_id)})
-        return self._detail(row)
+        return submission_detail(row, live=self.registry.is_live(row.submission.id))
 
     async def logs(
         self,
@@ -429,7 +329,7 @@ class AutomationService:
                 return None
             sub.status, sub.attempts = "in_progress", sub.attempts + 1
             sub.started_at = sub.started_at or _now()
-            facts, files = await self._facts(session, pkg)
+            facts, files = await applicant_facts(session, self.storage, pkg)
             state = await BrowserSessionRepository(session).state(sub.platform)
             return ApplyRun(
                 submission_id=sub.id,
@@ -491,7 +391,9 @@ class AutomationService:
                 raise ConflictError("Fields can only be changed while the run waits for review.")
             sub.edits = {**sub.edits, key: value}
             pkg = await session.get(ApplicationPackage, sub.package_id) if sub.package_id else None
-            facts, files = await self._facts(session, pkg) if pkg else (ApplicantFacts(), {})
+            facts, files = (
+                await applicant_facts(session, self.storage, pkg) if pkg else (ApplicantFacts(), {})
+            )
             app = await session.get(Application, sub.application_id)
             run = ApplyRun(sub.id, sub.application_id, app.job_id if app else uuid.uuid4(),
                            sub.platform, sub.apply_url, facts, files, dict(sub.edits))  # fmt: skip
@@ -689,158 +591,3 @@ class AutomationService:
         job = await session.get(Job, pkg.job_id)
         if job is None or job.status == "expired":
             raise ConflictError("This job is no longer posted.")
-
-    async def _facts(
-        self, session: AsyncSession, pkg: ApplicationPackage
-    ) -> tuple[ApplicantFacts, dict[str, FilePayload]]:
-        """Everything the form may use, from the approved package only."""
-        version = (
-            await session.get(ResumeVersion, pkg.resume_version_id)
-            if pkg.resume_version_id
-            else None
-        )
-        resume = ParsedResume.model_validate(version.content) if version else ParsedResume()
-        profile = await session.get(CandidateProfile, pkg.profile_id)
-        letter = (
-            await session.get(CoverLetter, pkg.cover_letter_id) if pkg.cover_letter_id else None
-        )
-        setting = await session.get(Setting, 1)
-        answers: list[ApplicationAnswer] = await PackageRepository(session).answers(pkg.id)
-        contact = resume.contact
-        name = contact.name or (profile.full_name if profile else None)
-        first, last = _split_name(name)
-        location = contact.location or (profile.location if profile else None)
-        current = next((e for e in resume.experience if e.is_current), None) or (
-            resume.experience[0] if resume.experience else None
-        )
-        years = profile.years_experience if profile else None
-        school = max(resume.education, key=lambda e: e.end_date or "", default=None)
-        grad_year, grad_month = _year_month(school.end_date if school else None)
-        facts = ApplicantFacts(
-            full_name=name,
-            first_name=first,
-            last_name=last,
-            email=contact.email or (profile.email if profile else None),
-            phone=contact.phone or (profile.phone if profile else None),
-            location=location,
-            country=country_from(location),
-            linkedin=str(contact.linkedin) if contact.linkedin else None,
-            github=str(contact.github) if contact.github else None,
-            website=str(contact.portfolio) if contact.portfolio else None,
-            current_company=current.company if current else None,
-            current_title=current.title if current else None,
-            years_experience=int(years) if years is not None else None,
-            salary_target=setting.salary_target if setting else None,
-            salary_currency=setting.salary_currency if setting else "USD",
-            school=school.institution if school else None,
-            degree=school.degree if school else None,
-            discipline=school.field_of_study if school else None,
-            grad_year=grad_year,
-            grad_month=grad_month,
-            answers=tuple(
-                AnswerFact(
-                    key=a.question_key or "",
-                    question=a.question,
-                    answer=a.answer,
-                    usable=(not a.needs_review) or a.source == "user",
-                )
-                for a in answers
-            ),
-            has_resume_file=bool(version and version.pdf_path),
-            has_cover_letter_file=bool(letter and letter.pdf_path),
-            cover_letter_text=letter.content if letter else None,
-        )
-        files: dict[str, FilePayload] = {}
-        if version and version.pdf_path:
-            files["resume"] = FilePayload(
-                _file_name(name, "Resume"), "application/pdf",
-                await self.storage.get(version.pdf_path),
-            )  # fmt: skip
-        if letter and letter.pdf_path:
-            files["cover_letter"] = FilePayload(
-                _file_name(name, "Cover_Letter"), "application/pdf",
-                await self.storage.get(letter.pdf_path),
-            )  # fmt: skip
-        return facts, files
-
-    def _summary(self, row: SubmissionRow) -> SubmissionSummary:
-        s = row.submission
-        review = s.review or {}
-        return SubmissionSummary(
-            id=s.id,
-            application_id=s.application_id,
-            package_id=s.package_id,
-            job_id=row.job_id,
-            job_title=row.job_title,
-            company_name=row.company_name,
-            job_status=row.job_status,
-            platform=s.platform,
-            apply_url=s.apply_url,
-            mode="APPROVAL_MODE",
-            status=s.status,
-            step=s.step,
-            attempts=s.attempts,
-            error=s.error,
-            error_kind=s.error_kind,
-            live=s.status == "waiting_for_review" and self.registry.is_live(s.id),
-            ready=review.get("ready") if review else None,
-            missing_count=len(review.get("missing", [])),
-            problem_count=len(review.get("problems", [])),
-            queued_at=s.queued_at,
-            started_at=s.started_at,
-            review_ready_at=s.review_ready_at,
-            confirmed_at=s.confirmed_at,
-            submitted_at=s.submitted_at,
-            failed_at=s.failed_at,
-            cancelled_at=s.cancelled_at,
-            updated_at=s.updated_at,
-        )
-
-    def _detail(self, row: SubmissionRow) -> SubmissionDetail:
-        s = row.submission
-        summary = self._summary(row)
-        review = s.review or {}
-        fields = (s.checkpoint or {}).get("fields", [])
-        editable = [
-            {
-                "key": f.get("key"),
-                "label": f.get("label"),
-                "kind": f.get("kind"),
-                "required": f.get("required", False),
-                "status": f.get("status"),
-                "value": s.edits.get(f.get("key", ""), f.get("value", "")),
-                "reason": f.get("reason", ""),
-                "options": f.get("options", []),
-                "edited": f.get("key") in s.edits,
-            }
-            for f in fields
-            if f.get("kind") != "file" and not f.get("sensitive")
-        ]
-        return SubmissionDetail(
-            **summary.model_dump(),
-            review=review,
-            edits=s.edits,
-            checkpoint=s.checkpoint,
-            screenshots=[
-                Screenshot(
-                    index=i + 1,
-                    step=str(x.get("step", "")),
-                    label=str(x.get("label", "")),
-                    at=x.get("at"),
-                )  # fmt: skip
-                for i, x in enumerate(s.screenshots)
-            ],
-            confirmation_text=s.confirmation_text,
-            recovery_hint=hint(s.error_kind) if s.error_kind else None,
-            editable_fields=editable,
-        )
-
-
-def _latest_per_application(rows: list[SubmissionRow]) -> list[SubmissionRow]:
-    seen: set[uuid.UUID] = set()
-    out = []
-    for r in rows:  # newest first
-        if r.submission.application_id not in seen:
-            seen.add(r.submission.application_id)
-            out.append(r)
-    return out

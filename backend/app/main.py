@@ -19,6 +19,7 @@ from app.core.logging import configure_logging
 from app.core.middleware import (
     REQUEST_ID_HEADER,
     BodySizeLimitMiddleware,
+    LocalRequestGuardMiddleware,
     RequestContextMiddleware,
 )
 from app.routers import api_v1_router, health_router
@@ -53,6 +54,10 @@ OPENAPI_TAGS = [
     {
         "name": "insights",
         "description": "Analytics, insights and recommendations from your own outcomes.",
+    },
+    {
+        "name": "agent-runs",
+        "description": "Agent activity: every agent run with outcome, timing, tokens, cost.",
     },
     {"name": "system", "description": "App info, scheduled jobs and background tasks."},
 ]
@@ -135,6 +140,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # Uploads are the largest bodies; allow multipart overhead on top.
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_upload_bytes + 1024 * 1024)
+    # Host allowlist and cross-site write protection (ADR-016), before CORS and
+    # the body limit so refused requests never reach a route.
+    app.add_middleware(
+        LocalRequestGuardMiddleware,
+        allowed_hosts=settings.allowed_hosts,
+        allowed_origins=settings.cors_origins,
+    )
     # Added last = outermost: request ids cover CORS and error responses too.
     app.add_middleware(RequestContextMiddleware)
 

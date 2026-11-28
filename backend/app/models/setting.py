@@ -66,9 +66,7 @@ class Setting(Base):
             "remote_preference IN ('remote_only', 'hybrid', 'onsite', 'any')",
             name="ck_settings_remote",
         ),
-        CheckConstraint(
-            "application_mode IN ('APPROVAL_MODE', 'AUTONOMOUS_MODE')", name="ck_settings_mode"
-        ),
+        CheckConstraint("application_mode IN ('APPROVAL_MODE')", name="ck_settings_mode"),
         CheckConstraint("auto_apply_threshold BETWEEN 0 AND 100", name="ck_settings_threshold"),
         CheckConstraint("daily_application_cap BETWEEN 0 AND 200", name="ck_settings_cap"),
         CheckConstraint(

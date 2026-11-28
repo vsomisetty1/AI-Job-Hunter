@@ -1,0 +1,16 @@
+# Only the app, its migrations and requirements go into the image.
+.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+data/
+browser_state/
+storage_cache/
+.env
+.env.*
+*.log
+requirements-dev.txt
+schema.sql

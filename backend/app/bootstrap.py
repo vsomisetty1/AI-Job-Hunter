@@ -23,7 +23,7 @@ from app.services.automation_service import AutomationService
 from app.services.discovery_service import DiscoveryService
 from app.services.filtering_service import FilteringService
 from app.services.lifecycle_service import LifecycleService
-from app.services.package_service import PackageGenerator
+from app.services.package_generator import PackageGenerator
 from app.services.pipeline_service import JobPipeline
 from app.services.resume_processing import ResumeProcessor
 from app.services.scoring_service import ScoringService

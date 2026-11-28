@@ -44,6 +44,7 @@ BEGIN
     PERFORM pg_temp.expect_error('UPDATE settings SET auto_apply_threshold = 101', 'threshold range');
     PERFORM pg_temp.expect_error('UPDATE settings SET salary_currency = ''usd''', 'currency uppercase');
     PERFORM pg_temp.expect_error('UPDATE settings SET application_mode = ''YOLO''', 'mode enum');
+    PERFORM pg_temp.expect_error('UPDATE settings SET application_mode = ''AUTONOMOUS_MODE''', 'no autonomous mode (0008)');
 
     -- ---------------------------------------------------------- profiles
     INSERT INTO candidate_profiles (full_name, email) VALUES ('Ada Lovelace', 'ada@example.com') RETURNING id INTO p;

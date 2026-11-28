@@ -74,7 +74,7 @@ class TimelineEntry(BaseModel):
     job_id: uuid.UUID
     job_title: str
     company_name: str
-    status: str | None = None  # an interview event's status
+    status: EventStatus | None = None  # an interview event's status
     detail: dict[str, Any] = Field(default_factory=dict)
 
 

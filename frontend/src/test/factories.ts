@@ -211,8 +211,6 @@ export function settings(overrides: Partial<Settings> = {}): Settings {
     excluded_companies: [],
     excluded_keywords: [],
     application_mode: "APPROVAL_MODE",
-    auto_apply_threshold: 80,
-    daily_application_cap: 10,
     discovery_enabled: true,
     claude_scoring_enabled: false,
     claude_scoring_min_score: 60,

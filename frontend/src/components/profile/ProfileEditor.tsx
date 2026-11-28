@@ -9,12 +9,17 @@ import { TextArea, TextField } from "@/components/ui/Field";
 import { errorMessage } from "@/lib/api/client";
 import { profileApi } from "@/lib/api/resumes";
 import { csvToList, linesToList, orNull } from "@/lib/format";
-import type { CandidateProfile, ProfileUpdate } from "@/types";
+import type { CandidateProfile, ProfileUpdate, Seniority } from "@/types";
 
-const SENIORITIES = [
+const SENIORITIES: readonly Seniority[] = [
   "intern", "entry", "junior", "mid", "senior", "staff", "principal", "lead", "manager",
   "director", "executive",
 ];
+
+/** The select only offers SENIORITIES; anything else (an old free-text value) is not sent. */
+function asSeniority(value: string): Seniority | null {
+  return (SENIORITIES as readonly string[]).includes(value) ? (value as Seniority) : null;
+}
 
 /** Only fields that differ from the profile are sent (so only they become overrides). */
 export function diffProfile(p: CandidateProfile, form: ProfileUpdate): ProfileUpdate {
@@ -68,7 +73,11 @@ export function ProfileEditor({
       portfolio_url: orNull(f.portfolio_url),
       headline: orNull(f.headline),
       summary: orNull(f.summary),
-      seniority: orNull(f.seniority),
+      // Unchanged: keep the stored value (diffProfile then leaves it out).
+      seniority:
+        f.seniority === (profile.seniority ?? "")
+          ? (profile.seniority as Seniority | null)
+          : asSeniority(f.seniority),
       years_of_experience: f.years.trim() === "" ? null : Number(f.years),
       skills: csvToList(f.skills),
       industries: csvToList(f.industries),

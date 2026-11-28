@@ -67,13 +67,16 @@ jobs:
         run: python -m playwright install --with-deps chromium
 
       - name: Lint (incl. security rules)
-        run: ruff check app tests migrations
+        run: ruff check app tests migrations ../scripts/gen_api_contract.py
 
       - name: Dependency vulnerability audit
         run: pip-audit -r requirements.txt --progress-spinner off
 
       - name: Format check
-        run: ruff format --check app tests migrations
+        run: ruff format --check app tests migrations ../scripts/gen_api_contract.py
+
+      - name: API contract is current (frontend/src/types/api.gen.ts)
+        run: python ../scripts/gen_api_contract.py --check
 
       - name: Type check (mypy --strict)
         run: mypy
@@ -95,6 +98,53 @@ jobs:
 
       - name: Smoke test (real server)
         run: ../scripts/smoke_backend.sh
+
+      - name: Backup and restore round trip (on the smoke test's data)
+        # pg_dump/pg_restore come from the postgres:19 image (the runner's client
+        # tools are older than the server).
+        run: ../scripts/test_backup_restore.sh
+
+  scripts:
+    name: Shell scripts (shellcheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: shellcheck
+        run: shellcheck -x -S warning scripts/*.sh scripts/lib/*.sh backend/docker-entrypoint.sh
+
+  docker:
+    name: Docker (images, Compose stack, backup/restore)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure (.env from the example)
+        run: |
+          cp .env.example .env
+          sed -i 's/change_me/ci_password/g' .env
+
+      - name: Validate the Compose file
+        run: docker compose config --quiet
+
+      - name: Build images (backend with Chromium, frontend)
+        run: docker compose build
+
+      - name: Start the stack
+        run: docker compose up -d --wait --wait-timeout 240
+
+      - name: Compose smoke test (guard, ports, users, Chromium, backup/restore)
+        run: scripts/smoke_compose.sh
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop
+        if: always()
+        run: docker compose down -v
 
   frontend:
     name: Frontend (typecheck, lint, tests, build)
@@ -120,13 +170,13 @@ jobs:
       - name: Dependency vulnerability audit
         run: npm audit --audit-level=moderate
 
-      - name: Typecheck
+      - name: Typecheck (incl. API contract types, src/types/contract.ts)
         run: npm run typecheck
 
       - name: Lint
         run: npm run lint
 
-      - name: Unit tests
+      - name: Unit tests (incl. API contract paths)
         run: npm test
 
       - name: Build

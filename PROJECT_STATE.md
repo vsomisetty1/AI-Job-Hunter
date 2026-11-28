@@ -1,12 +1,14 @@
 # Project state
 
-Snapshot of the repository as of **2026-11-27**, at the Phase 9 commit `feat: learning and insights engine`.
+Snapshot of the repository as of **2026-11-28**, at the Phase 10 commit `feat: hardening and release readiness` (version **0.10.0**).
 It was written from the code, schema, tests and git history, not from memory.
 Update it at the end of every phase.
 
 Companion documents:
 - [AI_CONTEXT.md](AI_CONTEXT.md): objectives, conventions, strategy
-- [docs/architecture/](docs/architecture/): ADRs 001–015
+- [docs/architecture/](docs/architecture/): ADRs 001–016
+- [RELEASE_READINESS.md](RELEASE_READINESS.md): what is verified, known gaps, gates to 1.0
+- [DEPLOYMENT.md](DEPLOYMENT.md) and [BACKUP_AND_RECOVERY.md](BACKUP_AND_RECOVERY.md)
 - [docs/MVP_VALIDATION.md](docs/MVP_VALIDATION.md): real-resume, real-job validation before automation
 - [docs/AUTOMATION_VALIDATION.md](docs/AUTOMATION_VALIDATION.md): application automation on live forms (review mode)
 - [docs/TESTING.md](docs/TESTING.md): CI and test layout
@@ -26,13 +28,16 @@ Companion documents:
 | 7. Application packages | `3624669` | Migration 0005; Agent 6 tailoring with change log; Agent 7 PDF/DOCX rendering; Agent 8 cover letters; Agent 9 answers; truthfulness guard; package generation (background) and approval workflow (review, approve, reject, regenerate, mark submitted); packages API; approval queue, review, tailored resume, diff, cover letter and answers pages |
 | MVP validation | `a0086bf` | Real resume + 5.4k real jobs: parsing fixes (DOCX tables, dates, locations, degrees, certifications, arrangement qualifiers, taxonomy), relevance-ranked tailoring/letters/answers (`agents/relevance.py`), honest skill claims, scoring calibration (`rules-3`) and 3× faster scoring, data lifecycle (package delete, retention, orphan sweep, storage report; ADR-013), empty-board note, expired jobs cannot be approved, `scripts/validate_mvp.py` |
 | 8. Application automation (approval mode) | `a4703db` | Migration 0006 (submissions, automation logs; approval mode and user confirmation enforced in the database); universal form engine (fields by labels/ARIA/legends/nearby text, every control type, read-back); semantic field matcher; Playwright browser manager (one Chromium, context per run, cookies per platform, live review sessions with cap and idle timeout); Greenhouse/Lever/Ashby adapters; Agent 10 (upload, fill, validate, screenshot, stop for review; edit; confirmed submit); checkpoints and failure recovery; automation API; Applications queue, review, history, logs and recovery UI; mock-ATS browser tests; real-world review-mode validation (`scripts/validate_automation.py`) |
-| 9. Learning and insights | `feat: learning and insights engine` | Migration 0007 (interview events, outcome milestones, withdrawn status, company industry, learning snapshots, recommendation states); outcome tracking with derived milestones and timeline; learning dataset, statistics (Wilson, Fisher + Holm, AUC + Mann-Whitney), metrics (funnel, rates, score accuracy, skill correlations, company/board/resume/package-style analytics), insights engine with statistical gates, recommendations, Learning Agent with daily snapshots; applications and insights APIs; Analytics dashboard, Interview pipeline, Outcome timeline, Company insights, Resume performance, Job boards, Recommendations pages |
+| 9. Learning and insights | `ecb5f32` | Migration 0007 (interview events, outcome milestones, withdrawn status, company industry, learning snapshots, recommendation states); outcome tracking with derived milestones and timeline; learning dataset, statistics (Wilson, Fisher + Holm, AUC + Mann-Whitney), metrics (funnel, rates, score accuracy, skill correlations, company/board/resume/package-style analytics), insights engine with statistical gates, recommendations, Learning Agent with daily snapshots; applications and insights APIs; Analytics dashboard, Interview pipeline, Outcome timeline, Company insights, Resume performance, Job boards, Recommendations pages |
 
-**Not started:** autonomous mode (after approval mode is validated with real use), deployment (containers, docs), end-to-end tests through the frontend.
+| 10. Hardening and release readiness | `feat: hardening and release readiness` | Local request guard (Host allowlist, cross-site write refusal, security headers; ADR-016); approval mode only in the API and the database (migration 0008); generated API contract with backend, typecheck and runtime checks, and backend schemas tightened to match; Docker images and full Compose stack (loopback only, non-root, health checks); backup and restore scripts with round-trip tests; agent activity API and page; `package_service` and `automation_service` split; placeholders removed; Supabase bucket accepts screenshots; one version (0.10.0); RELEASE_READINESS, DEPLOYMENT, BACKUP_AND_RECOVERY, SUPABASE_SETUP |
+
+**Not started:** see §13. Autonomous mode is deliberately not built and is blocked in the
+database until a new ADR enables it.
 
 ## 2. Current architecture
 
-A modular monolith: one FastAPI process (one worker) with an in-process scheduler, a Next.js frontend and one PostgreSQL database.
+A modular monolith: one FastAPI process (one worker) with an in-process scheduler, a Next.js frontend and one PostgreSQL database. Runs natively (`scripts/dev.sh`) or as three Compose services (`db`, `backend`, `frontend`), every port on 127.0.0.1 (DEPLOYMENT.md).
 
 ```
 Next.js 16 (React 19, SWR)  ──HTTP /api/v1──►  FastAPI (python -m app, 127.0.0.1:8000)
@@ -60,6 +65,7 @@ Backend layers are enforced by `backend/tests/unit/test_architecture.py`: import
 | 0 data | `models/`, `schemas/`, `utils/` |
 
 Key rules:
+- Every request passes the local request guard first: Host allowlist, cross-site writes refused (ADR-016).
 - One request is one transaction (`get_db`).
 - Repositories never commit.
 - Background work opens its own short transactions and never holds one open during a network or Claude call.
@@ -105,13 +111,15 @@ Key rules:
   - Connector health with a live probe.
   - `agent_runs` with tokens and cost.
   - Background task status; scheduled jobs list; `/health` and `/health/ready`.
-- **Settings:** single-row preferences, edited on the Settings page or via `GET/PATCH /api/v1/settings`.
+- **Settings:** single-row preferences, edited on the Settings page or via `GET/PATCH /api/v1/settings`. Autonomous-mode fields are refused (ADR-016).
+- **Agent activity:** `/activity` lists every agent run and pipeline stage with status, duration, tokens, cost and errors, filterable by agent and status, plus per-agent totals over a period (`/api/v1/agent-runs`, `/summary`, `/agents`).
+- **Operations:** Docker images and Compose stack; `scripts/backup.sh` / `restore.sh` (verified checksums, schema-revision check, safety backup).
 
 Verified live on 2026-11-27: 7 real boards, 1,697 jobs stored. A repeat run inserted 0 jobs and reported everything unchanged.
 
 ## 4. Database summary
 
-PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0007**. `backend/schema.sql` is the readable reference. Migrations execute frozen SQL files (`backend/migrations/sql/`) pinned by SHA-256 in `tests/unit/test_schema_sql.py`.
+PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0008**. `backend/schema.sql` is the readable reference. Migrations execute frozen SQL files (`backend/migrations/sql/`) pinned by SHA-256 in `tests/unit/test_schema_sql.py`.
 
 | Table | Purpose | Used by |
 |---|---|---|
@@ -136,6 +144,7 @@ PostgreSQL 15+ (CI uses 19). The schema is at Alembic head **0007**. `backend/sc
 | `learning_snapshots` | Append-only Learning Agent output (summary, insights, recommendations) keyed by an input hash | Phase 9 |
 | `recommendation_states` | Recommendations you dismissed or did | Phase 9 |
 | `companies.industry` | Set by you, never inferred (analytics) | Phase 9 |
+| `settings.application_mode`, `applications.application_mode` | Limited to `APPROVAL_MODE` (0008); `auto_apply_threshold` and `daily_application_cap` kept, unused and not editable | Phase 10 |
 
 Conventions:
 - uuid primary keys; `timestamptz`.
@@ -155,8 +164,8 @@ Stack:
 
 | Area | Implemented | Placeholder |
 |---|---|---|
-| Routers (`/api/v1`) | `resumes`, `profile`, `settings`, `system`, `jobs`, `companies`, `discovery`, `scoring`, `packages`, `automation`, `applications`, `insights`; unversioned `health` | `agent_runs` |
-| Services | resume, resume_processing, profile, settings, pipeline (`JobPipeline`), job, company, discovery, filtering, scoring, package (`PackageGenerator`, `PackageWorkflow`), lifecycle, automation (`AutomationService`), outcome (`OutcomeService`), job_normalizer; `learning/` (dataset, stats, families, metrics, insights, recommendations, `LearningAgent`, `LearningService`) | application |
+| Routers (`/api/v1`) | `resumes`, `profile`, `settings`, `system`, `jobs`, `companies`, `discovery`, `scoring`, `packages`, `automation`, `applications`, `insights`, `agent-runs`; unversioned `health` | — |
+| Services | resume, resume_processing, profile, settings, pipeline (`JobPipeline`), job, company, discovery, filtering, scoring, packages (`package_generator.PackageGenerator`, `package_workflow.PackageWorkflow`, `package_inputs`), lifecycle, automation (`automation_service.AutomationService`, `automation_facts`, `automation_recorder.DbRecorder`, `automation_views`), outcome (`OutcomeService`), job_normalizer; `learning/` (dataset, stats, families, metrics, insights, recommendations, `LearningAgent`, `LearningService`) | — |
 | Agents | 0 resume parser, 1 profile inference, 2 job discovery, 3 deduplication, 4 rule filtering, 5 rule-based scoring, 6 resume tailoring, 7 PDF/DOCX rendering, 8 cover letters, 9 application answers, 10 application automation; `truthfulness.py`; `relevance.py`; `runs.py` (agent_runs) | — |
 | Adapters | connectors (3 platforms), documents, parsing, llm (client, cache, pricing, rate limiter; prompts for parse/profile/skills/career/job scoring/tailoring/cover letter/answers), storage (local, Supabase), automation (browser manager, DOM extraction, form engine, field matcher, checkpoints, recovery, Greenhouse/Lever/Ashby adapters) | — |
 
@@ -184,9 +193,9 @@ Stack: Next.js 16.4 (App Router), React 19.3, TypeScript 6.0, Tailwind 4, SWR 2.
 | `/` and `/insights` | Done: analytics dashboard (rates with intervals, funnel, insights, score accuracy, job families, skills, workplace, trend; run the Learning Agent) |
 | `/insights/pipeline`, `/insights/timeline` | Done: interview pipeline (stage columns, record / update / delete events), outcome timeline |
 | `/insights/companies`, `/insights/resumes`, `/insights/boards`, `/insights/recommendations` | Done: company insights (with industry), resume performance, job board performance, recommendations (dismiss / done / restore) and all insights |
-| `/activity` | Placeholder page |
+| `/activity` | Done: agent activity (per-agent totals over a period, runs filtered by agent and status, paginated) |
 
-The API client lives in `src/lib/api/`, hooks in `src/hooks/`, and types mirroring the backend schemas in `src/types/index.ts`.
+The API client lives in `src/lib/api/`, hooks in `src/hooks/`, and types mirroring the backend schemas in `src/types/index.ts`, checked against the generated `src/types/api.gen.ts` by `contract.ts` (typecheck) and `contract.test.ts` (every call is a backend operation).
 - Links are rendered only for http(s) URLs (`safeUrl`).
 - Job text is rendered as text, never as HTML.
 
@@ -226,7 +235,7 @@ See ADR-011 and the README section. Pipeline: `JobPipeline` (`services/pipeline_
 
 ## 8c. Application packages summary (Phase 7)
 
-See ADR-012 and the README section. `PackageGenerator.generate` (background task) loads the job, active profile, primary resume's latest parsed version, settings and the job's effective score (computed with Agent 5 if the job was never scored), then runs Agents 6, 8 and 9 with no transaction open, renders files with Agent 7, writes them to storage, and saves the tailored resume version, cover letter, answers and package in one short transaction. `PackageWorkflow` handles the state changes inside the request. `app/agents/truthfulness.py` checks every generated text: no skill or number the resume lacks; tailored resumes keep contact, roles, dates, education and certifications identical.
+See ADR-012 and the README section. `PackageGenerator.generate` (`services/package_generator.py`, background task) loads the job, active profile, primary resume's latest parsed version, settings and the job's effective score (computed with Agent 5 if the job was never scored), then runs Agents 6, 8 and 9 with no transaction open, renders files with Agent 7, writes them to storage, and saves the tailored resume version, cover letter, answers and package in one short transaction. `PackageWorkflow` (`services/package_workflow.py`) handles the state changes inside the request. `app/agents/truthfulness.py` checks every generated text: no skill or number the resume lacks; tailored resumes keep contact, roles, dates, education and certifications identical.
 
 ## 8d. MVP validation summary
 
@@ -243,9 +252,10 @@ settings `PACKAGE_RETENTION_DAYS` (90) and `ORPHAN_GRACE_HOURS` (24).
 See ADR-014, the README section and [docs/AUTOMATION_VALIDATION.md](docs/AUTOMATION_VALIDATION.md).
 `AutomationService` (`services/automation_service.py`) starts a run for an approved package
 (`application_submissions` row, background task), builds applicant facts from the approved
-package only (tailored resume, profile, settings, package answers usable only if reviewed),
-and calls Agent 10 (`agents/agent_10_application_agent.py`) with a `DbRecorder` for logs,
-checkpoints and screenshots. Agent 10 uses `automation/`: `BrowserManager` and
+package only (`services/automation_facts.py`: tailored resume, profile, settings, package
+answers usable only if reviewed), and calls Agent 10 (`agents/agent_10_application_agent.py`)
+with a `DbRecorder` (`services/automation_recorder.py`) for logs, checkpoints and screenshots;
+`services/automation_views.py` turns submission rows into API responses. Agent 10 uses `automation/`: `BrowserManager` and
 `SessionRegistry` (browser lifecycle, live review sessions), `dom.py` (in-page extraction),
 `form_engine.py` (fill, upload, validate), `field_matcher.py` (concepts and option choice),
 `checkpoints.py`, `recovery.py` (error kinds, retries) and `platforms/` (adapters). Submits
@@ -269,70 +279,135 @@ Thresholds: 10 submitted applications before comparisons, 5 per group, p <= 0.10
 10 points and 1.5x minimum effect; score verdicts need a 10-point score spread and
 p <= 0.10.
 
+## 8g. Hardening summary (Phase 10)
+
+See ADR-016, DEPLOYMENT.md and BACKUP_AND_RECOVERY.md.
+- `core/middleware.LocalRequestGuardMiddleware`: `ALLOWED_HOSTS` (400 `host_not_allowed`),
+  cross-site writes (403 `cross_site_request`), security headers; `CONTAINER_LOOPBACK_ONLY`
+  lets the image bind 0.0.0.0 inside its container with `AUTH_MODE=none`.
+- Settings API refuses the autonomous-mode fields; migration 0008 pins `application_mode`.
+- `scripts/gen_api_contract.py` -> `frontend/src/types/api.gen.ts`; checked by
+  `tests/unit/test_api_contract.py`, `src/types/contract.ts`, `src/types/contract.test.ts`.
+- `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `scripts/smoke_compose.sh`.
+- `scripts/backup.sh`, `scripts/restore.sh`, `scripts/lib/common.sh`,
+  `scripts/test_backup_restore.sh`.
+- `LOCAL_STORAGE_DIR` relative paths now resolve against `backend/` (`Settings.local_storage_path`),
+  whatever the working directory.
+
 ## 9. Testing status
 
-- **Backend:**
-  - 573 tests pass (unit, integration on real Postgres, and 14 browser tests driving real Chromium against mock Greenhouse/Lever/Ashby pages). The 3 live tests are deselected by default.
-  - CI fails on any skip; warnings are errors.
-- **Frontend:** 74 Vitest tests.
-- **CI** (`.github/workflows/ci.yml`, on every push):
-  - backend: pip check, Chromium install, ruff (incl. security rules), pip-audit, format, mypy strict, pytest on Postgres 19 (incl. browser tests), smoke script against the real server (now including a filtering/scoring run, a package generate/download/review/approve, package delete rules, the storage endpoints, the automation endpoints, and outcome recording plus every analytics endpoint and a Learning Agent run)
-  - frontend: npm audit, typecheck, lint, test, build
-- **Weekly:** `live-connectors.yml`.
-- **No empty test placeholders remain.** The Phase 1 stubs were either implemented (`test_rule_filtering.py`, `test_scoring.py`, `test_api.py`, `test_pipeline.py`) or removed (`test_resume_parser.py`, covered by `test_parsing.py`; `tests/e2e/test_apply_flow.py` and `frontend/e2e/dashboard.spec.ts`; Phase 8 added `tests/browser/test_form_engine.py` for real). Browser tests (Playwright, real Chromium, mock ATS pages) run in CI; a frontend-through-backend Playwright e2e is still to do. Real ATS forms are checked by hand with `scripts/validate_automation.py` (review mode).
+- **Backend:** 654 tests pass (unit, integration on real Postgres 19, and browser
+  tests driving real Chromium against mock Greenhouse/Lever/Ashby pages); 3 live tests are
+  deselected by default. CI fails on any skip; warnings are errors.
+- **Frontend:** 150 Vitest tests, including the API contract test (every API call
+  is a backend operation); `npm run typecheck` includes the compile-time contract.
+- **CI** (`.github/workflows/ci.yml`, every push and pull request):
+  - backend: pip check, Chromium, ruff (incl. bandit rules), pip-audit, format, API contract
+    current, mypy strict, pytest on Postgres 19, smoke script against the real server,
+    backup/restore round trip on the smoke test's data
+  - frontend: npm audit, typecheck (incl. contract), lint, tests, build
+  - scripts: shellcheck
+  - docker: Compose config, build both images (backend with Chromium), start the stack,
+    `scripts/smoke_compose.sh` (readiness, security headers, loopback-only ports, non-root
+    users, request guard, approval-mode-only settings, Chromium fills a form in the image,
+    backup and restore of the Compose volumes)
+- **Weekly:** `live-connectors.yml` (real Greenhouse/Lever/Ashby APIs).
+- **Manual, real world:** `scripts/validate_discovery.sh`, `scripts/validate_mvp.py`,
+  `scripts/validate_automation.py` (review mode only).
+- **Not covered by automated tests:** a real submission on a live ATS (never done: Phase 11);
+  the browser running the frontend against the real backend (Phase 12); untyped analytics
+  responses (`/insights/summary`, `/companies`, `/boards`, `/resumes`) in the contract.
 
 ## 10. Technical debt
 
-- `Settings.app_version` is `0.9.0`; nothing bumps it automatically.
-- Analytics are computed live on each request from all rows: fine for hundreds of applications; cache or use snapshots if it ever grows to many thousands.
-- An open review form lives in process memory: a restart or the idle timeout closes it, and the user retries (the checkpoint and saved edits make that quick).
-- Platform adapters encode observed behaviour (Greenhouse embed URL, Lever resume parsing and location suggestions); a platform redesign may need an adapter update. The engine itself is selector-free.
-- Reparsing a resume does not rebuild the profile or rescore jobs automatically (each is one action).
-- The orphan sweep lists every stored file and referenced path: fine for a personal store, not for a very large one.
-- Package generation is a background task: like the others it is lost on restart (the package is then marked failed and can be regenerated).
-- `docs/ARCHITECTURE.md`, `docs/SETUP.md` and `docs/SUPABASE_SETUP.md` are still Phase 1 placeholders. ADRs and this file now carry that content; `docs/PHASE_3_PLAN.md` is historical.
-- `backend/Dockerfile` and `frontend/Dockerfile` are placeholders. `docker-compose.yml` runs only the database.
-- Agent 5's skill matching knows the built-in taxonomy plus the candidate's own skills only; synonyms need Claude (or a future Claude Code command). Skills the taxonomy does not know are scored neutral rather than as misses.
-- The Claude daily cap counts calls recorded by scoring stages in `agent_runs`; a scoring path outside the pipeline would not be counted.
-- Job search uses `ILIKE` per word with no full-text index. That is fine for thousands of rows; add `tsvector`/`pg_trgm` if it grows.
-- The suggested-company directory (`connectors/company_directory.py`) is static, verified on 2026-11-27, and will drift (one company had already moved platforms and one board was empty; an empty board now shows a note in the run details).
+- Analytics endpoints (`/insights/summary`, `/insights/companies`, `/insights/boards`,
+  `/insights/resumes`) return untyped dictionaries, so the API contract cannot check them;
+  give them response models.
+- `SubmissionDetail.review` and `.checkpoint`, and `agent_runs` input/output summaries, are
+  free-form JSON in the API.
+- Analytics are computed live on each request from all rows: fine for hundreds of
+  applications; cache or use snapshots if it ever grows to many thousands.
+- An open review form lives in process memory: a restart or the idle timeout closes it, and
+  the user retries (the checkpoint and saved edits make that quick).
+- Platform adapters encode observed behaviour (Greenhouse embed URL, Lever resume parsing and
+  location suggestions); a platform redesign may need an adapter update. The engine itself is
+  selector-free.
+- Reparsing a resume does not rebuild the profile or rescore jobs automatically (each is one
+  action).
+- The orphan sweep lists every stored file and referenced path: fine for a personal store,
+  not for a very large one.
+- Background tasks (package generation, discovery, automation runs) are lost on restart and
+  marked failed/cancelled at the next start.
+- Agent 5's skill matching knows the built-in taxonomy plus the candidate's own skills only;
+  synonyms need Claude. Unknown skills are scored neutral.
+- The Claude daily cap counts calls recorded by scoring stages in `agent_runs`; a scoring
+  path outside the pipeline would not be counted.
+- Job search uses `ILIKE` per word with no full-text index (fine for thousands of rows).
+- The suggested-company directory (`connectors/company_directory.py`) is static (verified
+  2026-11-27) and will drift.
 - `llm/pricing.py` holds a manual price table.
-- `httpx` is held at 0.28.1 by `supabase`; ESLint 9 and TypeScript 6 are held back by `eslint-config-next`/`typescript-eslint` (see `docs/TESTING.md`).
-- Several placeholder modules for Phases 6–10 exist only as docstrings (listed in §5). Before relying on their names, confirm the design still fits.
+- Toolchain holdbacks (`docs/TESTING.md`): `httpx` 0.28 (supabase), ESLint 9 and
+  TypeScript 6 (`eslint-config-next`).
+- The real-world validation scripts (`scripts/validate_*.py`) are not linted in CI.
+- The Compose frontend bakes the API URL into its bundle at build time (changing
+  `BACKEND_PORT` needs a frontend rebuild).
+
+Resolved in Phase 10: placeholder modules and pages, the unconfigurable-but-accepted
+autonomous mode, Docker placeholders, `docs/SETUP.md`/`ARCHITECTURE.md` placeholders,
+hand-copied types without checks, the two oversized services, the unbumped version, the
+Supabase bucket rejecting screenshots, and unused `PLAYWRIGHT_HEADLESS`/`BROWSER_STATE_DIR`
+settings.
 
 ## 11. Known limitations
 
-- **Single process:**
-  - Background tasks are in memory and lost on restart (the run is then marked cancelled).
-  - The scheduler needs exactly one worker.
-- **No real auth:** `AUTH_MODE=none` is allowed only on loopback; `api_key` mode exists for anything else. Not built for public deployment.
-- **Greenhouse:** if the API ever truncated a board without reporting it in `meta.total`, the run would not notice. Expiry would still be wrong only for that one crawl.
-- **Salary:** yearly only. Hourly and other rates are left in `compensation_text` without numbers.
-- **Fingerprint dedup includes location:** the same role with differently written locations on two platforms is kept twice.
-- **Requirement extraction is heuristic** (headings): coverage was about 90–100 % on the sampled live boards, and some postings have none.
-- **Only three ATS platforms**, and only boards you add (no search across all companies).
-- Location matching knows a small alias table and US states only (no country/city database); unknown places match by name.
-- Sponsorship detection is phrase-based; unusual wording can slip through (the job is then kept).
-- Cover letters and the “why this company” answer are templates over facts unless Claude is used; they are flagged for personalisation.
-- Per-skill experience years count whole roles whose text describes using the skill; a skill used in part of a role is over-counted, so such answers say "about" and are flagged when any counted role only names the skill.
-- No agent activity UI yet (`/activity` is a placeholder).
-- **Learning:** outcomes are only as complete as what you record (silence looks like "no response"). Insights describe correlations in your history, not causes. With fewer than 10 submitted applications only facts are shown; small groups are never compared. Industries are compared only where you set them.
-- **Automation:** approval mode only. CAPTCHAs need a visible browser (`AUTOMATION_HEADLESS=false`). Location autocompletes depend on the platforms' third-party lookups. Attaching a file uploads it to the ATS before submit (Greenhouse, Ashby). Checkbox groups and education "School" lists with no exact match are left for the user. Only Greenhouse, Lever and Ashby.
+- **Single process:** background tasks are in memory; the scheduler needs exactly one worker.
+- **Local only:** no real auth (`AUTH_MODE=none` on loopback; `api_key` exists but the
+  frontend cannot send it). Not built for LAN or public deployment.
+- **Automation:** approval mode only. Never submitted on a live ATS yet. CAPTCHAs need a
+  visible browser (native backend, `AUTOMATION_HEADLESS=false`); the Compose image is
+  headless only. Location autocompletes depend on the platforms' third-party lookups.
+  Attaching a file uploads it to the ATS before submit (Greenhouse, Ashby). Checkbox groups
+  and education "School" lists with no exact match are left for the user. Only Greenhouse,
+  Lever and Ashby.
+- **Greenhouse:** if the API ever truncated a board without reporting it in `meta.total`,
+  the run would not notice; expiry would be wrong only for that crawl.
+- **Salary:** yearly only.
+- **Fingerprint dedup includes location:** the same role with differently written locations
+  on two platforms is kept twice.
+- **Requirement extraction is heuristic** (headings): about 90–100 % coverage on sampled boards.
+- **Only boards you add** (no search across all companies). Location matching knows a small
+  alias table and US states only. Sponsorship detection is phrase-based.
+- Cover letters and the "why this company" answer are templates over facts unless Claude is
+  used; they are flagged for personalisation. Per-skill years can over-count partial use
+  (answers say "about" and are flagged).
+- **Learning:** outcomes are only as complete as what you record; insights are correlations;
+  fewer than 10 submitted applications shows facts only.
+- **Backups:** Supabase storage and Supabase Postgres restores are not covered by the scripts.
 
 ## 12. Deferred functionality
 
 | Item | Where it goes |
 |---|---|
-| Claude Code commands to score a shortlist under the Pro plan (via the API) | Phase 7 or 8 |
-| Autonomous mode: submit without review above a score threshold, daily cap (`settings.auto_apply_threshold`, `daily_application_cap`), only after approval mode is validated | Next |
-| Claude Code commands for tailoring/letters under the Pro plan (via the API) | With Agent 10 or Phase 8 |
-| Agent activity page | Next |
-| Dockerfiles, full compose, deploy docs, Supabase setup doc | Later (deployment) |
-| Frontend-through-backend Playwright e2e in CI | Later (plus each phase's own tests) |
-| Workday connector | After Phase 7; see ADR-008 |
+| Real applications in approval mode, outcome recording, fixes from real use | Phase 11 |
+| Frontend-through-backend Playwright tests on the Compose stack | Phase 12 |
+| Claude Code commands for shortlist scoring, tailoring and letters under the Pro plan (via the API) | Phase 13 |
+| Response models for the analytics endpoints (contract coverage) | Phase 12 |
+| Autonomous mode | After 1.0, only with evidence from Phase 11 and a new ADR superseding ADR-014/016 |
+| Workday connector | After 1.0 (ADR-008) |
+| Full-text job search, self-updating company directory | After 1.0 |
 
-## 13. Next recommended phases
+## 13. Roadmap to 1.0
 
-1. **Use approval mode and outcome tracking for real**: apply to a batch of jobs, record every reply and interview, and let the Learning Agent accumulate history (insights start at 10 submitted applications).
-2. **Autonomous mode** (only after 1, and informed by its insights, e.g. the score threshold that actually converts): threshold, daily cap, stop on anything missing or a CAPTCHA; a new ADR superseding the approval-only rule and a migration relaxing `ck_application_submissions_mode`.
-3. **Agent activity page**, deployment story (containers, still personal use), frontend e2e tests.
+This is the single roadmap; README and AI_CONTEXT point here.
+
+| Step | Scope | Exit criterion |
+|---|---|---|
+| 10. Hardening and release readiness | ADR-016 (done) | CI green including the Docker job; RELEASE_READINESS.md written |
+| 11. Real-use validation | Use the app for real in approval mode: track boards, generate and review packages, fill and **submit** real applications with confirmation, record every reply and interview. Fix what breaks (submit confirmation, CAPTCHA on submit, adapters). Document like AUTOMATION_VALIDATION.md. | At least 10 real confirmed submissions with no wrong or duplicate submission; first statistically gated insights appear |
+| 12. End-to-end tests | Playwright through the frontend against the Compose stack (mock ATS pages, no network); response models for the analytics endpoints | E2E job green in CI on every push |
+| 13. Claude Code command path | `.claude/commands/` for shortlist scoring, tailoring and cover letters through the API, under the owner's Pro plan; never OAuth inside the app (ADR-006) | Commands round-trip through the API; API-side tests |
+| **1.0** | RELEASE_READINESS.md gates all met; version 1.0.0; changelog; tag | Tagged release |
+
+After 1.0 (each needs its own decision): autonomous mode (only if Phase 11's data shows
+what converts; new ADR; migration relaxing the 0006/0008 constraints; threshold, daily cap,
+kill switch), Workday discovery, more providers, full-text search, multi-user mode.

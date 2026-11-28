@@ -16,7 +16,7 @@ def build_storage(settings: Settings) -> StorageBackend:
             settings.supabase_service_role_key.get_secret_value(),
             settings.supabase_bucket,
         )
-    return LocalStorage(settings.local_storage_dir)
+    return LocalStorage(settings.local_storage_path)
 
 
 __all__ = [

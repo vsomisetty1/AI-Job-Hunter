@@ -12,16 +12,19 @@ AI Job Hunter is a **personal, single-user job-search agent**. It should:
 2. Discover relevant jobs continuously from company job boards.
 3. Filter and score those jobs against the profile and preferences.
 4. Prepare application packages: tailored resume, cover letter, answers.
-5. Apply, in **approval mode** (the user confirms each application) or **autonomous mode**
-   (above a score threshold, under a daily cap).
+5. Apply in **approval mode**: the app fills the form, the user reviews and confirms each
+   submission. Autonomous mode (above a score threshold, under a daily cap) is a possible
+   post-1.0 goal; it is **not built** and is blocked in the API and the database until a new
+   ADR enables it (ADR-014, ADR-016).
 6. Learn from outcomes to improve targeting.
 
 It runs on the user's own machine. **It is not a public, multi-user service.**
 
 ## MVP scope
 
-The MVP is Phases 1–7: resume intelligence, discovery, filtering and scoring, application
-packages, and approval-mode automation for the supported ATS providers.
+The MVP was Phases 1–7 (resume intelligence, discovery, filtering and scoring, application
+packages); Phases 8–10 added approval-mode automation, learning from outcomes, and release
+hardening. The roadmap to 1.0 is in PROJECT_STATE.md §13.
 
 | In scope | Out of scope (for now) |
 |---|---|
@@ -29,7 +32,8 @@ packages, and approval-mode automation for the supported ATS providers.
 | Greenhouse, Lever, Ashby public boards | Workday, LinkedIn/Indeed scraping, aggregators |
 | Boards the user chooses to track | Crawling "all companies" |
 | Deterministic pipeline with optional Claude | Mandatory paid AI for routine work |
-| Approval mode first; autonomous mode behind a threshold and cap | Unattended mass-applying |
+| Approval mode (user confirms every submission) | Autonomous mode, unattended mass-applying |
+| Docker Compose on your own machine, loopback only | LAN, server or cloud deployment |
 
 ## Architecture principles
 
@@ -39,8 +43,9 @@ packages, and approval-mode automation for the supported ATS providers.
    is reviewed SQL, and the migrations are frozen files.
 3. **Short transactions** (ADR-003): one request is one transaction, repositories never
    commit, and no transaction stays open across a network or LLM call.
-4. **Single user, local first** (ADR-004). There is no auth on loopback, and an API key
-   otherwise.
+4. **Single user, local first** (ADR-004, ADR-016). There is no auth on loopback, and an
+   API key otherwise. Every request passes the local request guard: Host allowlist (DNS
+   rebinding), cross-site writes refused (CSRF), no framing.
 5. **In-process jobs** (ADR-005): APScheduler plus a background task manager, with one worker.
    Startup recovers interrupted work.
 6. **Deterministic first, AI optional** (ADR-006). Every feature works without Claude.
@@ -56,6 +61,8 @@ packages, and approval-mode automation for the supported ATS providers.
    request IDs and structured logs let you see what happened without a debugger.
 10. **Tests ship with features** (ADR-010). Tests run against real Postgres, external
     services are never called in CI, and CI is extended in every phase.
+11. **One contract between frontend and backend** (ADR-016). The frontend's types are
+    checked against types generated from the backend's OpenAPI spec.
 
 ## Coding conventions
 
@@ -81,7 +88,10 @@ packages, and approval-mode automation for the supported ATS providers.
   unit-tested.
 
 **TypeScript (frontend/)**
-- Strict TypeScript; types that mirror backend schemas live in `src/types/index.ts`.
+- Strict TypeScript; types that mirror backend schemas live in `src/types/index.ts`. After
+  changing a backend request/response model or route, run
+  `python scripts/gen_api_contract.py` (backend venv) and commit `src/types/api.gen.ts`; add
+  new response types to the checks in `src/types/contract.ts`. CI fails on drift.
 - All HTTP goes through `apiFetch` (`src/lib/api/client.ts`), and data fetching uses SWR
   hooks in `src/hooks/`.
 - Never render backend or third-party text as HTML. Link URLs only through `safeUrl`.
@@ -101,11 +111,15 @@ packages, and approval-mode automation for the supported ATS providers.
 - **Layout:**
   - `backend/` holds the FastAPI app, migrations and tests.
   - `frontend/` holds the Next.js app.
-  - `scripts/` holds `dev.sh`, `init_db.sh`, `smoke_backend.sh` and
-    `validate_discovery.sh`.
+  - `scripts/` holds `dev.sh`, `init_db.sh`, `smoke_backend.sh`, `smoke_compose.sh`,
+    `backup.sh`, `restore.sh` (+ `lib/common.sh`, `test_backup_restore.sh`),
+    `gen_api_contract.py` and the real-world `validate_*` scripts.
   - `docs/` and `supabase/` hold supporting material.
-- **Placeholders:** files marked `PLACEHOLDER - implemented in PHASE N` are stubs that the
-  named phase replaces. Their names are intentions, not commitments.
+- **No placeholders:** Phase 10 implemented or removed every Phase 1 stub, and
+  `tests/unit/test_repository_hygiene.py` fails if one appears. Do not add empty modules for
+  future work.
+- **Version:** one version in `backend/pyproject.toml`, `Settings.app_version` and
+  `frontend/package.json` (a test keeps them equal); bump it when a phase ships.
 - **Commits:** conventional style (`feat:`, `chore:`, `docs:`, `ci:`). Each phase is one
   feature commit that includes its tests, CI changes and docs.
 - **Versions:** use the latest stable release of every dependency, pinned exactly. Any
@@ -168,10 +182,12 @@ Claude):
   applications automatically, and never suggest adding a skill except "if you have it".
 - Outcome milestones are derived from interview events: never set them directly.
 
-**Automation rules (Phase 8, ADR-014)** for anything that touches an application form:
+**Automation rules (Phase 8, ADR-014, ADR-016)** for anything that touches an application form:
 - Approval mode only: nothing is submitted without the user's explicit confirmation; the
-  database enforces it (`mode` = APPROVAL_MODE, `confirmed_at` before submitting). Do not
-  add a code path that submits otherwise without a new ADR.
+  database enforces it (`application_submissions.mode`, `settings.application_mode` and
+  `applications.application_mode` = APPROVAL_MODE, `confirmed_at` before submitting), and the
+  settings API refuses the autonomous fields. Do not add a code path that submits otherwise
+  without a new ADR.
 - Find fields by meaning (labels, ARIA, legends, nearby text), never by hard-coded
   selectors; platform adapters hold only what is truly platform-specific.
 - Never guess: no fact, no answer; never type a "needs review" package answer; never tick
@@ -220,18 +236,11 @@ The design keeps the door open:
   `source` CHECK update in a migration;
 - a platform adapter slot exists in `automation/platforms/`.
 
-Revisit after Phase 7, starting with discovery only (see ADR-008).
+Revisit after 1.0, starting with discovery only (see ADR-008).
 
-## Future roadmap
+## Roadmap
 
-| Phase | Content |
-|---|---|
-| 6 | Done: Agent 4 rule filtering; Agent 5 scoring (deterministic baseline, optional Claude for a shortlist); scores in the Jobs UI; Settings page (Claude Code command path still to do) |
-| 7 | Done: application packages (Agents 6–9: tailored resume versions with change log, PDF/DOCX, cover letters, answers) with an approval workflow |
-| MVP validation | Done: validated on a real resume and 5.4k real postings before automation (see `docs/MVP_VALIDATION.md`): parsing, relevance-ranked tailoring, specific and honest letters and answers, data lifecycle (ADR-013), faster scoring, expired jobs cannot be approved |
-| 8 | Done: application automation in **approval mode** (Agent 10, Playwright): fill approved packages into real Greenhouse/Lever/Ashby forms, review screen, confirmed submit, checkpoints and recovery, Applications UI (ADR-014, `docs/AUTOMATION_VALIDATION.md`) |
-| 9 | Done: learning and insights: interview and outcome tracking, Learning Agent (daily snapshots), analytics (rates with intervals, funnel, score accuracy, skill correlations, company / board / resume / package-style), statistically gated insights, recommendations; dashboard and insights pages (ADR-015) |
-| Next | Autonomous mode (threshold, daily cap) only after approval mode is validated in real use and the insights show what converts; agent activity page |
-| 9 | Docker images, full compose, deployment and Supabase docs (personal deployment; real auth before anything public) |
-| 10 | End-to-end tests (Playwright) in CI |
-| Later | Workday discovery; more providers; full-text search; optional multi-user mode (Supabase Auth) |
+The single, current roadmap (with exit criteria) is **PROJECT_STATE.md §13**: Phase 11
+real-use validation in approval mode, Phase 12 end-to-end tests, Phase 13 Claude Code
+commands, then 1.0. After 1.0, each with its own decision: autonomous mode (new ADR),
+Workday discovery, more providers, full-text search, optional multi-user mode.

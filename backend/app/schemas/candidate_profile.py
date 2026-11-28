@@ -143,9 +143,9 @@ class CandidateProfileRead(BaseModel):
     awards: list[AwardEntry]
     languages: list[str]
     career_analysis: CareerAnalysisOutput | None
-    inference_source: str
+    inference_source: Literal["deterministic", "llm"]
     inference_model: str | None
-    inference_status: str
+    inference_status: Literal["none", "pending", "running", "complete", "failed"]
     inference_error: str | None
     inferred_at: datetime | None
     overrides: list[str]

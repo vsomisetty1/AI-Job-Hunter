@@ -31,9 +31,31 @@ class DiscoveryRunSummary(ORMModel):
     duration_ms: int | None
 
 
+class CompanyRunOutcome(BaseModel):
+    """One company's result in a discovery run (discovery_runs.details)."""
+
+    company_id: uuid.UUID
+    source: Source
+    slug: str
+    name: str
+    status: Literal["ok", "error", "not_found"] = "ok"
+    found: int = 0
+    invalid: int = 0
+    inserted: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    skipped: int = 0
+    expired: int = 0
+    pages: int = 0
+    duration_ms: int = 0
+    error: str | None = None
+    notes: list[str] = Field(default_factory=list)
+    skip_reasons: dict[str, int] = Field(default_factory=dict)
+    invalid_samples: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class DiscoveryRunDetail(DiscoveryRunSummary):
-    # One entry per company: counts, status, error, skip reasons, invalid samples.
-    details: list[dict[str, Any]]
+    details: list[CompanyRunOutcome]
 
 
 class StartDiscoveryRequest(APIModel):
@@ -55,7 +77,7 @@ class DiscoveryStarted(BaseModel):
 
 
 class ConnectorProbe(BaseModel):
-    source: str
+    source: Source
     ok: bool
     board: str
     latency_ms: int
@@ -64,7 +86,7 @@ class ConnectorProbe(BaseModel):
 
 
 class SourceHealth(BaseModel):
-    source: str
+    source: Source
     display_name: str
     companies_tracked: int
     companies_failing: int

@@ -76,7 +76,7 @@ def client_for():
     def _client(app):
         return httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
-            base_url="http://test",
+            base_url="http://127.0.0.1:8000",
         )
 
     return _client

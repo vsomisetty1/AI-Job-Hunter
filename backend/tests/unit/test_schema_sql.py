@@ -123,7 +123,12 @@ def test_every_jsonb_column_is_type_checked(schema_sql):
 def test_status_values_cover_tracking_stages(schema_sql):
     for stage in ("drafted", "ready", "submitted", "interview", "rejected", "offer"):
         assert f"'{stage}'" in schema_sql
-    assert "'APPROVAL_MODE'" in schema_sql and "'AUTONOMOUS_MODE'" in schema_sql
+    assert "'APPROVAL_MODE'" in schema_sql
+
+
+def test_autonomous_mode_cannot_be_stored(schema_sql):
+    """Not built (ADR-014, ADR-016): no table may accept AUTONOMOUS_MODE."""
+    assert "AUTONOMOUS_MODE" not in schema_sql
 
 
 # Applied migrations are frozen: editing one would leave existing databases
@@ -146,6 +151,9 @@ FROZEN_MIGRATION_SHA256 = {
     ),
     "0007_learning_insights.sql": (
         "f63b8ea20eb1cae831668fba908f8437d276def372c2e8b60212c9f9b762bf1b"
+    ),
+    "0008_approval_mode_only.sql": (
+        "706bc279bb3d94e517e29227586f3cf7f87e6e261c701d47933fa6b452782afa"
     ),
 }
 

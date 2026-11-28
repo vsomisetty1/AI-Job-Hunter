@@ -18,7 +18,7 @@ alembic upgrade head
 STORE="$(mktemp -d)"
 WORK=""
 # APP_ENV=test: no auto-reload. Scheduler stays on so startup is exercised fully.
-APP_ENV=test BACKEND_PORT="$PORT" LOCAL_STORAGE_DIR="$STORE" ANTHROPIC_API_KEY= \
+APP_ENV=test BACKEND_PORT="$PORT" LOCAL_STORAGE_DIR="$STORE" ANTHROPIC_API_KEY='' \
   python -m app >"$LOG" 2>&1 &
 PID=$!
 cleanup() {
@@ -56,9 +56,13 @@ expect() {  # expect <status> <method> <path> [json-body]
 expect 200 GET /health
 expect 200 GET /health/ready
 expect 200 GET /api/v1/settings
-expect 200 PATCH /api/v1/settings '{"daily_application_cap": 10}'
-expect 422 PATCH /api/v1/settings '{"auto_apply_threshold": 101}'
+expect 200 PATCH /api/v1/settings '{"discovery_enabled": true}'
+expect 422 PATCH /api/v1/settings '{"claude_scoring_min_score": 101}'
+# Autonomous mode is not built (ADR-016): the API refuses to configure it.
+expect 422 PATCH /api/v1/settings '{"application_mode": "AUTONOMOUS_MODE"}'
 expect 200 GET /api/v1/system/jobs
+expect 200 GET /api/v1/agent-runs
+expect 200 GET "/api/v1/agent-runs/summary?days=7"
 expect 200 GET /api/v1/openapi.json
 expect 404 GET /api/v1/does-not-exist
 
