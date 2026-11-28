@@ -20,6 +20,7 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_crawl_status: Mapped[str | None] = mapped_column(Text)
     last_error: Mapped[str | None] = mapped_column(Text)
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    industry: Mapped[str | None] = mapped_column(Text)  # set by the user, never inferred
 
     jobs = relationship("Job", back_populates="company")
 
@@ -32,6 +33,10 @@ class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="ck_companies_crawl_status",
         ),
         CheckConstraint("consecutive_failures >= 0", name="ck_companies_failures"),
+        CheckConstraint(
+            "industry IS NULL OR (btrim(industry) <> '' AND length(industry) <= 80)",
+            name="ck_companies_industry",
+        ),
         UniqueConstraint("source", "slug", name="uq_companies_source_slug"),
         Index(
             "ix_companies_crawl_queue",

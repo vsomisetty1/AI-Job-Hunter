@@ -17,14 +17,21 @@ from app.connectors.base import Connector
 from app.core.config import Settings, get_settings
 from app.core.database import session_scope
 from app.core.security import Principal, get_current_user
+from app.learning.service import LearningService
 from app.scheduler.background import BackgroundTaskManager
 from app.scheduler.scheduler import SchedulerService
+from app.services.automation_service import AutomationService
 from app.services.company_service import CompanyService
 from app.services.discovery_service import DiscoveryService
 from app.services.job_service import JobService
+from app.services.lifecycle_service import LifecycleService
+from app.services.outcome_service import OutcomeService
+from app.services.package_service import PackageGenerator, PackageWorkflow
+from app.services.pipeline_service import JobPipeline
 from app.services.profile_service import ProfileService
 from app.services.resume_processing import ResumeProcessor
 from app.services.resume_service import ResumeService
+from app.services.scoring_service import ScoringService
 from app.services.settings_service import SettingsService
 
 
@@ -96,6 +103,60 @@ def get_discovery(request: Request) -> DiscoveryService:
 
 ConnectorsDep = Annotated[dict[str, Connector], Depends(get_connectors)]
 DiscoveryDep = Annotated[DiscoveryService, Depends(get_discovery)]
+
+
+# ------------------------------------------------------------ Phase 6 services
+def get_pipeline(request: Request) -> JobPipeline:
+    return cast(JobPipeline, request.app.state.pipeline)
+
+
+def get_scoring(request: Request) -> ScoringService:
+    return cast(ScoringService, request.app.state.scoring)
+
+
+PipelineDep = Annotated[JobPipeline, Depends(get_pipeline)]
+ScoringDep = Annotated[ScoringService, Depends(get_scoring)]
+
+
+# ------------------------------------------------------------ Phase 7 services
+def get_package_generator(request: Request) -> PackageGenerator:
+    return cast(PackageGenerator, request.app.state.packages)
+
+
+def get_package_workflow(request: Request, db: DbSession) -> PackageWorkflow:
+    return PackageWorkflow(db, request.app.state.storage)
+
+
+def get_lifecycle(request: Request) -> LifecycleService:
+    return cast(LifecycleService, request.app.state.lifecycle)
+
+
+LifecycleDep = Annotated[LifecycleService, Depends(get_lifecycle)]
+PackageGeneratorDep = Annotated[PackageGenerator, Depends(get_package_generator)]
+PackageWorkflowDep = Annotated[PackageWorkflow, Depends(get_package_workflow)]
+
+
+# ------------------------------------------------------------ Phase 8 services
+def get_automation(request: Request) -> AutomationService:
+    return cast(AutomationService, request.app.state.automation)
+
+
+AutomationDep = Annotated[AutomationService, Depends(get_automation)]
+
+
+# ------------------------------------------------------------ Phase 9 services
+def get_outcome_service(db: DbSession) -> OutcomeService:
+    return OutcomeService(db)
+
+
+OutcomeServiceDep = Annotated[OutcomeService, Depends(get_outcome_service)]
+
+
+def get_learning(request: Request) -> LearningService:
+    return cast(LearningService, request.app.state.learning)
+
+
+LearningDep = Annotated[LearningService, Depends(get_learning)]
 
 
 def get_company_service(db: DbSession, connectors: ConnectorsDep) -> CompanyService:

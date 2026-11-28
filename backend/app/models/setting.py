@@ -43,6 +43,13 @@ class Setting(Base):
         SmallInteger, nullable=False, server_default="10"
     )
     discovery_enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
+    claude_scoring_enabled: Mapped[bool] = mapped_column(
+        nullable=False, server_default=text("false")
+    )
+    claude_scoring_min_score: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="60"
+    )
+    willing_to_relocate: Mapped[bool | None] = mapped_column()
     extra: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=EMPTY_OBJECT
     )
@@ -64,6 +71,9 @@ class Setting(Base):
         ),
         CheckConstraint("auto_apply_threshold BETWEEN 0 AND 100", name="ck_settings_threshold"),
         CheckConstraint("daily_application_cap BETWEEN 0 AND 200", name="ck_settings_cap"),
+        CheckConstraint(
+            "claude_scoring_min_score BETWEEN 0 AND 100", name="ck_settings_claude_min_score"
+        ),
         CheckConstraint("salary_currency ~ '^[A-Z]{3}$'", name="ck_settings_currency"),
         CheckConstraint(
             "(salary_min IS NULL OR salary_min >= 0) AND "

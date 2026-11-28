@@ -2,7 +2,9 @@
 
 Every entry was checked against the live job-board APIs on 2026-11-27.
 Companies move between platforms; a suggestion that stops working shows up
-as a "not found" crawl status and can simply be removed.
+as a "not found" crawl status, or as an "empty board" note when the old
+board still answers but lists nothing (Vercel moved from Ashby to
+Greenhouse; Deel's Ashby board went empty: both found in MVP validation).
 """
 
 from dataclasses import dataclass
@@ -30,6 +32,7 @@ DIRECTORY: tuple[DirectoryEntry, ...] = (
     DirectoryEntry("greenhouse", "coinbase", "Coinbase"),
     DirectoryEntry("greenhouse", "asana", "Asana"),
     DirectoryEntry("greenhouse", "duolingo", "Duolingo"),
+    DirectoryEntry("greenhouse", "vercel", "Vercel"),
     DirectoryEntry("lever", "spotify", "Spotify"),
     DirectoryEntry("lever", "palantir", "Palantir"),
     DirectoryEntry("lever", "binance", "Binance"),
@@ -37,8 +40,6 @@ DIRECTORY: tuple[DirectoryEntry, ...] = (
     DirectoryEntry("ashby", "openai", "OpenAI"),
     DirectoryEntry("ashby", "notion", "Notion"),
     DirectoryEntry("ashby", "linear", "Linear"),
-    DirectoryEntry("ashby", "vercel", "Vercel"),
     DirectoryEntry("ashby", "supabase", "Supabase"),
-    DirectoryEntry("ashby", "deel", "Deel"),
     DirectoryEntry("ashby", "posthog", "PostHog"),
 )

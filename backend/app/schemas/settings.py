@@ -10,6 +10,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from app.schemas.common import APIModel, ORMModel
+from app.schemas.job import EmploymentType
 
 RemotePreference = Literal["remote_only", "hybrid", "onsite", "any"]
 ApplicationMode = Literal["APPROVAL_MODE", "AUTONOMOUS_MODE"]
@@ -28,7 +29,25 @@ NOT_NULLABLE = frozenset(
         "auto_apply_threshold",
         "daily_application_cap",
         "discovery_enabled",
+        "claude_scoring_enabled",
+        "claude_scoring_min_score",
         "extra",
+    }
+)
+# Fields the rule filter and the scorer read: changing one re-scores the jobs.
+SCORING_FIELDS = frozenset(
+    {
+        "preferred_locations",
+        "remote_preference",
+        "job_types",
+        "salary_min",
+        "salary_target",
+        "salary_currency",
+        "requires_sponsorship",
+        "excluded_companies",
+        "excluded_keywords",
+        "claude_scoring_enabled",
+        "claude_scoring_min_score",
     }
 )
 
@@ -48,7 +67,7 @@ def _clean_list(values: list[str]) -> list[str]:
 class SettingsRead(ORMModel):
     preferred_locations: list[str]
     remote_preference: RemotePreference
-    job_types: list[str]
+    job_types: list[EmploymentType]
     salary_min: int | None
     salary_target: int | None
     salary_currency: str
@@ -61,6 +80,9 @@ class SettingsRead(ORMModel):
     auto_apply_threshold: int
     daily_application_cap: int
     discovery_enabled: bool
+    claude_scoring_enabled: bool
+    claude_scoring_min_score: int
+    willing_to_relocate: bool | None
     extra: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -71,7 +93,7 @@ class SettingsUpdate(APIModel):
 
     preferred_locations: list[str] | None = None
     remote_preference: RemotePreference | None = None
-    job_types: list[str] | None = None
+    job_types: list[EmploymentType] | None = None
     salary_min: int | None = Field(default=None, ge=0)
     salary_target: int | None = Field(default=None, ge=0)
     salary_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
@@ -84,12 +106,21 @@ class SettingsUpdate(APIModel):
     auto_apply_threshold: int | None = Field(default=None, ge=0, le=100)
     daily_application_cap: int | None = Field(default=None, ge=0, le=200)
     discovery_enabled: bool | None = None
+    claude_scoring_enabled: bool | None = None
+    claude_scoring_min_score: int | None = Field(default=None, ge=0, le=100)
+    # null = not stated (relocation answers are then flagged for review)
+    willing_to_relocate: bool | None = None
     extra: dict[str, Any] | None = None
 
-    @field_validator("preferred_locations", "job_types", "excluded_companies", "excluded_keywords")
+    @field_validator("preferred_locations", "excluded_companies", "excluded_keywords")
     @classmethod
     def _clean(cls, v: list[str] | None) -> list[str] | None:
         return None if v is None else _clean_list(v)
+
+    @field_validator("job_types")
+    @classmethod
+    def _unique_types(cls, v: list[EmploymentType] | None) -> list[EmploymentType] | None:
+        return None if v is None else list(dict.fromkeys(v))
 
     @field_validator("salary_currency", mode="before")
     @classmethod

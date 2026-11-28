@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "AI Job Hunter API"
-    app_version: str = "0.4.0"
+    app_version: str = "0.9.0"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     log_json: bool | None = None  # default: JSON in production only
@@ -76,9 +76,39 @@ class Settings(BaseSettings):
     claude_timeout_seconds: float = Field(default=120.0, gt=0)
     # Server-side refusal fallback (routes a declined request to another model).
     claude_refusal_fallback: bool = True
+    # Job scoring with Claude (opt-in in settings; only with an API key). Limits
+    # keep cost predictable: a cap per run, a rolling 24-hour cap, and pacing.
+    claude_effort_scoring: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    claude_scoring_max_per_run: int = Field(default=25, ge=0, le=500)
+    claude_scoring_max_per_day: int = Field(default=100, ge=0, le=5000)
+    claude_scoring_per_minute: float = Field(default=10.0, gt=0, le=600)
     llm_cache_ttl_days: int = Field(default=30, ge=0)  # 0 = never expires
+    # Superseded/rejected/failed application packages (and the tailored resume
+    # and cover letter they created) are deleted after this many days.
+    package_retention_days: int = Field(default=90, ge=1)
+    # Files no row points to are deleted by the daily sweep once this old.
+    orphan_grace_hours: int = Field(default=24, ge=1)
     # agent_runs older than this are deleted by the daily maintenance job.
     agent_run_retention_days: int = Field(default=180, ge=1)
+
+    # Application automation (Phase 8, approval mode only: the app never
+    # submits without the user's confirmation).
+    automation_enabled: bool = True
+    # false shows the browser window (to watch a run or solve a CAPTCHA).
+    automation_headless: bool = True
+    # A Chromium/Chrome binary to use instead of Playwright's own download.
+    automation_browser_path: str | None = None
+    automation_slow_mo_ms: int = Field(default=0, ge=0, le=5000)
+    automation_navigation_timeout_ms: int = Field(default=45_000, ge=1000)
+    automation_action_timeout_ms: int = Field(default=10_000, ge=500)
+    # Open forms waiting for review; more runs wait in the queue.
+    automation_max_sessions: int = Field(default=2, ge=1, le=10)
+    # An open form nobody touched for this long is closed (Retry reopens it).
+    automation_session_idle_minutes: int = Field(default=30, ge=1)
+    # Automatic attempts for transient failures (crash, timeout, network).
+    automation_max_attempts: int = Field(default=2, ge=1, le=5)
+    # How long to wait for the site to confirm a submission.
+    automation_submit_timeout_seconds: int = Field(default=45, ge=5)
 
     # Resume uploads
     max_upload_mb: float = Field(default=10.0, gt=0, le=50)
@@ -104,6 +134,9 @@ class Settings(BaseSettings):
     browser_state_dir: str = "./browser_state"
 
     scheduler_enabled: bool = True
+    # Re-filter and re-score stored jobs in the background when the settings
+    # or the profile change (otherwise only scheduled runs and "Re-score" do).
+    rescore_on_change: bool = True
     discovery_interval_minutes: int = Field(default=360, ge=5)
     # Job boards crawled in parallel, and HTTP behaviour towards them.
     discovery_concurrency: int = Field(default=4, ge=1, le=16)

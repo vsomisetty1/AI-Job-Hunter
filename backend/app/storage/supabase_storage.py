@@ -1,13 +1,14 @@
 """Supabase Storage backend (private bucket, service-role key, server-side only)."""
 
 import logging
+from datetime import datetime
 
 import httpx
 from storage3 import AsyncStorageClient
 from storage3._async.file_api import AsyncBucketProxy
 from storage3.exceptions import StorageApiError
 
-from app.storage.base import StorageError, StorageNotFoundError, check_path
+from app.storage.base import StorageError, StorageNotFoundError, StoredFile, check_path
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,38 @@ class SupabaseStorage:
             raise StorageError("Could not read the file from storage.") from exc
         except Exception as exc:
             raise StorageError("Could not reach file storage.") from exc
+
+    async def list_files(self, prefix: str) -> list[StoredFile]:
+        """Recursive listing (Supabase lists one folder level per call, 1000 per page)."""
+        out: list[StoredFile] = []
+        folders = [check_path(prefix)]
+        try:
+            while folders:
+                folder = folders.pop()
+                offset = 0
+                while True:
+                    items = await self._bucket().list(
+                        folder, {"limit": 1000, "offset": offset, "sortBy": {"column": "name"}}
+                    )
+                    for item in items:
+                        name = f"{folder}/{item['name']}"
+                        if item.get("id") is None:  # a folder
+                            folders.append(name)
+                            continue
+                        meta = item.get("metadata") or {}
+                        updated = item.get("updated_at") or item.get("created_at")
+                        modified = (
+                            datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                            if updated
+                            else None
+                        )
+                        out.append(StoredFile(name, int(meta.get("size") or 0), modified))
+                    if len(items) < 1000:
+                        break
+                    offset += 1000
+        except Exception as exc:
+            raise StorageError("Could not list files in storage.") from exc
+        return sorted(out, key=lambda x: x.path)
 
     async def delete(self, path: str) -> None:
         try:

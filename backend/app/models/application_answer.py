@@ -2,6 +2,7 @@
 
 import uuid
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -12,17 +13,21 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.models.base import EMPTY_LIST, Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class ApplicationAnswer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "application_answers"
 
-    application_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE"), nullable=False
+    # Owner: the application, or (before one exists) the package.
+    application_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("applications.id", ondelete="CASCADE")
+    )
+    package_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("application_packages.id", ondelete="CASCADE")
     )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     question_hash: Mapped[str] = mapped_column(Text, nullable=False)
@@ -31,12 +36,13 @@ class ApplicationAnswer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     source: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2))
     needs_review: Mapped[bool] = mapped_column(nullable=False, server_default=text("false"))
+    evidence: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, server_default=EMPTY_LIST)
 
     application = relationship("Application", back_populates="answers")
 
     __table_args__ = (
         CheckConstraint(
-            "source IN ('profile', 'settings', 'llm', 'user')",
+            "source IN ('profile', 'settings', 'rules', 'llm', 'user')",
             name="ck_application_answers_source",
         ),
         CheckConstraint(
@@ -44,6 +50,17 @@ class ApplicationAnswer(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="ck_application_answers_confidence",
         ),
         CheckConstraint("question_hash ~ '^[0-9a-f]{64}$'", name="ck_application_answers_hash"),
+        CheckConstraint(
+            "num_nonnulls(application_id, package_id) = 1",
+            name="ck_application_answers_one_owner",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(evidence) = 'array'", name="ck_application_answers_evidence_json"
+        ),
+        CheckConstraint("btrim(answer) <> ''", name="ck_application_answers_answer"),
+        UniqueConstraint(
+            "package_id", "question_hash", name="uq_application_answers_package_question"
+        ),
         UniqueConstraint(
             "application_id", "question_hash", name="uq_application_answers_app_question"
         ),

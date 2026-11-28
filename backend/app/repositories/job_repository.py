@@ -2,19 +2,89 @@
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, Row, Select, and_, func, insert, or_, select, update
+from sqlalchemy import (
+    ColumnElement,
+    Row,
+    Select,
+    and_,
+    func,
+    insert,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.orm import InstrumentedAttribute
 
+from app.models.candidate_profile import CandidateProfile
 from app.models.company import Company
 from app.models.job import Job
 from app.repositories.base import Repository
+from app.repositories.job_score_repository import (
+    effective_method,
+    effective_score,
+    effective_score_join,
+    passed_filters,
+)
 from app.schemas.job import JobSearchParams
 
 # (Job, company name, source)
 JobRow = Row[Job, str, str]
+# (Job, company name, source, effective score, scoring method)
+ScoredJobRow = Row[Job, str, str, int | None, str | None]
+
+# Statuses the rule filter (re)evaluates; the others are user decisions or final.
+FILTERABLE_STATUSES = ("new", "filtered", "scored")
+
+
+@dataclass(frozen=True)
+class FilterCandidate:
+    id: uuid.UUID
+    status: str
+    title: str
+    company_name: str
+    location: str | None
+    remote_type: str
+    employment_type: str | None
+    salary_min: int | None
+    salary_max: int | None
+    salary_currency: str | None
+    description: str
+    requirements: list[Any]
+    duplicate_of: uuid.UUID | None
+    filter_hash: str | None
+
+
+# Cross-board duplicates among open jobs: for each fingerprint the earliest
+# job is the original; jobs with that fingerprint at OTHER companies point to
+# it. Same-company jobs with one fingerprint are distinct openings and stay.
+# Expired jobs release their links. Returns one row per changed job.
+_MARK_DUPLICATES = text(
+    """
+    WITH open_jobs AS (
+        SELECT id, company_id, dedup_key, first_seen_at FROM jobs WHERE status <> 'expired'
+    ),
+    originals AS (
+        SELECT DISTINCT ON (dedup_key) dedup_key, id AS original_id, company_id AS original_company
+        FROM open_jobs ORDER BY dedup_key, first_seen_at, id
+    ),
+    desired AS (
+        SELECT o.id,
+               CASE WHEN o.company_id <> g.original_company THEN g.original_id END AS duplicate_of
+        FROM open_jobs o JOIN originals g USING (dedup_key)
+        UNION ALL
+        SELECT id, NULL FROM jobs WHERE status = 'expired' AND duplicate_of IS NOT NULL
+    )
+    UPDATE jobs j SET duplicate_of = d.duplicate_of
+    FROM desired d
+    WHERE j.id = d.id AND j.duplicate_of IS DISTINCT FROM d.duplicate_of
+    RETURNING j.duplicate_of IS NOT NULL AS is_duplicate
+    """
+)
 
 # Statuses a disappearing posting must not overwrite.
 KEEP_ON_EXPIRY = ("expired", "applied")
@@ -91,10 +161,96 @@ class JobRepository(Repository[Job]):
         )
         return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
+    # ------------------------------------------------------- deduplication
+    async def mark_cross_board_duplicates(self) -> dict[str, int]:
+        rows = (await self.session.execute(_MARK_DUPLICATES)).all()
+        marked = sum(1 for r in rows if r.is_duplicate)
+        total_dupes = await self.session.scalar(
+            select(func.count()).select_from(Job).where(Job.duplicate_of.is_not(None))
+        )
+        return {
+            "marked": marked,
+            "released": len(rows) - marked,
+            "duplicates": int(total_dupes or 0),
+        }
+
+    # ----------------------------------------------------------- filtering
+    async def filter_candidates(
+        self, *, after: uuid.UUID | None, limit: int
+    ) -> list[FilterCandidate]:
+        stmt = (
+            select(
+                Job.id,
+                Job.status,
+                Job.title,
+                Company.name,
+                Job.location,
+                Job.remote_type,
+                Job.employment_type,
+                Job.salary_min,
+                Job.salary_max,
+                Job.salary_currency,
+                Job.description,
+                Job.requirements,
+                Job.duplicate_of,
+                Job.filter_hash,
+            )  # fmt: skip
+            .join(Company, Company.id == Job.company_id)
+            .where(Job.status.in_(FILTERABLE_STATUSES))
+            .order_by(Job.id)
+            .limit(limit)
+        )
+        if after is not None:
+            stmt = stmt.where(Job.id > after)
+        return [FilterCandidate(*tuple(r)) for r in await self.session.execute(stmt)]
+
+    async def filter_counts(self) -> dict[str, int]:
+        """Open jobs by filter state (expired jobs left out)."""
+        open_job = Job.status != "expired"
+        rejected = or_(Job.status == "filtered", Job.duplicate_of.is_not(None))
+        row = (
+            await self.session.execute(
+                select(
+                    func.count(),
+                    func.count().filter(Job.filtered_at.is_(None)),
+                    func.count().filter(passed_filters()),
+                    func.count().filter(rejected),
+                    func.count().filter(Job.duplicate_of.is_not(None)),
+                ).where(open_job)
+            )
+        ).one()
+        return dict(
+            zip(
+                ("active", "unfiltered", "passed", "rejected", "duplicate"),
+                map(int, row),
+                strict=True,
+            )
+        )
+
+    async def apply_filter_results(self, rows: Sequence[dict[str, Any]]) -> None:
+        """Bulk UPDATE by primary key; every dict has id, status, filter_* columns."""
+        if rows:
+            await self.session.execute(update(Job), list(rows))
+
     # --------------------------------------------------------------- search
-    def _search_query(self, p: JobSearchParams) -> Select[Job, str, str]:
-        stmt = select(Job, Company.name.label("company_name"), Company.source).join(Company)
-        conditions = []
+    def _search_query(self, p: JobSearchParams) -> Select[Job, str, str, int | None, str | None]:
+        active_profile = (
+            select(CandidateProfile.id)
+            .where(CandidateProfile.is_active.is_(True))
+            .scalar_subquery()
+        )
+        score = effective_score()
+        stmt = effective_score_join(
+            select(
+                Job,
+                Company.name.label("company_name"),
+                Company.source,
+                score.label("score"),
+                effective_method().label("score_method"),
+            ).join(Company),
+            active_profile,
+        )
+        conditions: list[ColumnElement[bool]] = []
         if p.q:
             words = [w for w in p.q.split() if w][:8]
             for word in words:
@@ -116,12 +272,27 @@ class JobRepository(Repository[Job]):
             conditions.append(Job.status == p.status)
         elif not p.include_expired:
             conditions.append(Job.status != "expired")
+        if p.filter_state == "passed":
+            conditions.append(passed_filters())
+        elif p.filter_state == "rejected":
+            conditions.append(
+                or_(
+                    Job.filter_result["passed"].as_boolean().is_(False),
+                    Job.duplicate_of.is_not(None),
+                )
+            )
+        elif p.filter_state == "pending":
+            conditions.append(Job.filtered_at.is_(None))
+        if p.min_score is not None:
+            conditions.append(score >= p.min_score)
         return stmt.where(and_(*conditions)) if conditions else stmt
 
-    async def search(self, p: JobSearchParams) -> tuple[list[JobRow], int]:
+    async def search(self, p: JobSearchParams) -> tuple[list[ScoredJobRow], int]:
         base = self._search_query(p)
         total = await self.session.scalar(select(func.count()).select_from(base.subquery()))
+        score = effective_score()
         orders: dict[str, tuple[ColumnElement[Any] | InstrumentedAttribute[Any], ...]] = {
+            "score": (score.desc().nulls_last(), Job.first_seen_at.desc(), Job.id),
             "newest": (Job.first_seen_at.desc(), Job.id),
             "posted": (Job.posted_at.desc().nulls_last(), Job.id),
             "title": (Job.title, Job.id),

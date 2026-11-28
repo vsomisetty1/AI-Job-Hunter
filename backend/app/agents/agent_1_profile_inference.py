@@ -12,6 +12,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import date
@@ -49,6 +50,21 @@ _TITLE_SENIORITY = [
     (("senior", "sr.", "sr "), "senior"),
     (("junior", "jr.", "jr ", "entry", "graduate", "associate"), "junior"),
 ]
+
+
+# Employment arrangements written next to a title: part of the resume, not of the
+# role someone would search for ("Platform Engineer (Contract)").
+_ARRANGEMENT = re.compile(
+    r"\s*(?:[(\[]\s*(?:contingent|contract(?:or)?|consultant|temp(?:orary)?|part[- ]time|"
+    r"full[- ]time|freelance|remote|hybrid|on[- ]site|c2c|w-?2|1099|via [^)\]]+)[^)\]]*[)\]]"
+    r"|\s+[-\u2013\u2014|]\s*(?:contract(?:or)?|contingent|temp(?:orary)?|part[- ]time)\s*$)",
+    re.IGNORECASE,
+)
+
+
+def role_name(title: str) -> str:
+    """A title without employment-arrangement qualifiers."""
+    return " ".join(_ARRANGEMENT.sub("", title).split()) or title
 
 
 @dataclass
@@ -104,8 +120,9 @@ def deterministic_profile(parsed: ParsedResume, today: date | None = None) -> Pr
 
     titles: list[str] = []
     for e in exp:
-        if e.title and e.title.lower() not in {t.lower() for t in titles}:
-            titles.append(e.title)
+        name = role_name(e.title) if e.title else None
+        if name and name.lower() not in {t.lower() for t in titles}:
+            titles.append(name)
 
     edu_summary = None
     if parsed.education:
@@ -124,7 +141,8 @@ def deterministic_profile(parsed: ParsedResume, today: date | None = None) -> Pr
     )
     headline = None
     if latest:
-        headline = latest + (f" with {years:g} years of experience" if years else "")
+        whole = int(years) if years is not None and years >= 1 else None
+        headline = role_name(latest) + (f" with {whole}+ years of experience" if whole else "")
 
     seniority = seniority_from(latest, years)
     columns = {

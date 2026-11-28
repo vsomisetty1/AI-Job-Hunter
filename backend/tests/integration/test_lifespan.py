@@ -5,7 +5,12 @@ state by hand; this test runs the real lifespan.
 """
 
 from app.core import database
-from app.scheduler.tasks import DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID
+from app.scheduler.tasks import (
+    AUTOMATION_SWEEP_JOB_ID,
+    DISCOVERY_JOB_ID,
+    LEARNING_JOB_ID,
+    MAINTENANCE_JOB_ID,
+)
 
 
 async def test_lifespan_starts_and_stops_everything(make_app, client_for, migrated_db_url):
@@ -14,7 +19,11 @@ async def test_lifespan_starts_and_stops_everything(make_app, client_for, migrat
     async with app.router.lifespan_context(app):
         scheduler = app.state.scheduler
         assert scheduler.running
-        assert sorted(j.id for j in scheduler.list_jobs()) == [DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID]
+        assert sorted(j.id for j in scheduler.list_jobs()) == sorted(
+            [DISCOVERY_JOB_ID, MAINTENANCE_JOB_ID, AUTOMATION_SWEEP_JOB_ID, LEARNING_JOB_ID]
+        )
+        automation = app.state.automation
+        assert not automation.browser.alive  # Chromium starts on the first run, not at boot
         assert database._engine is not None
         assert str(database._engine.url).startswith("postgresql+asyncpg://")
 
@@ -29,6 +38,7 @@ async def test_lifespan_starts_and_stops_everything(make_app, client_for, migrat
 
     assert not scheduler.running
     assert database._engine is None  # pool disposed
+    assert not automation.browser.alive and automation.registry.open_count == 0
     # Task manager refuses new work after shutdown.
     try:
         task_manager.submit("late", lambda: None)  # type: ignore[arg-type]

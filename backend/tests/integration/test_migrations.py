@@ -225,3 +225,222 @@ def test_0002_renumbers_versions_and_downgrade_removes_untailored(db):
     with eng.begin() as conn:  # leave no user data behind for other tests
         for table in ("candidate_profiles", "jobs", "companies"):  # FK order
             conn.execute(text(f"DELETE FROM {table}"))
+
+
+def test_0004_keeps_existing_claude_scores_and_downgrades_cleanly(db):
+    """Old rows (one per prompt version) collapse to the newest and become 'claude';
+    downgrading drops what the old schema cannot hold."""
+    eng, cfg = db
+    command.downgrade(cfg, "0003")
+    h = "a" * 64
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        j = conn.execute(
+            text("INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                 "VALUES (:c, '1', 'Eng', 'https://x.test/1', :h) RETURNING id"),
+            {"c": c, "h": h},
+        ).scalar()  # fmt: skip
+        for version, at in (("v1", "2026-01-01"), ("v2", "2026-02-01")):
+            conn.execute(
+                text("INSERT INTO job_scores (job_id, profile_id, overall_score, "
+                     "interview_probability, salary_score, growth_score, company_score, model, "
+                     "prompt_version, created_at) VALUES (:j, :p, 50, 1, 1, 1, 1, 'm', :v, :at)"),
+                {"j": j, "p": p, "v": version, "at": at},
+            )  # fmt: skip
+    command.upgrade(cfg, "head")
+    with eng.begin() as conn:
+        rows = conn.execute(text("SELECT scoring_method, prompt_version FROM job_scores")).all()
+        assert [tuple(r) for r in rows] == [("claude", "v2")]
+        conn.execute(
+            text("INSERT INTO job_scores (job_id, profile_id, overall_score) VALUES (:j, :p, 70)"),
+            {"j": j, "p": p},
+        )
+    command.downgrade(cfg, "0003")
+    with eng.connect() as conn:
+        rows = conn.execute(text("SELECT prompt_version FROM job_scores")).all()
+        assert [tuple(r) for r in rows] == [("v2",)]  # the rule-based row is gone
+    command.upgrade(cfg, "head")
+
+
+def test_0005_downgrade_keeps_the_newest_cover_letter_and_drops_packages(db):
+    eng, cfg = db
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        j = conn.execute(
+            text(
+                "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                "VALUES (:c, '1', 'Eng', 'https://x.test/1', :h) RETURNING id"
+            ),
+            {"c": c, "h": "b" * 64},
+        ).scalar()
+        for n in (1, 2):
+            conn.execute(
+                text(
+                    "INSERT INTO cover_letters (job_id, profile_id, content, version_number) "
+                    "VALUES (:j, :p, :t, :n)"
+                ),
+                {"j": j, "p": p, "t": f"Draft {n}", "n": n},
+            )
+        pkg = conn.execute(
+            text(
+                "INSERT INTO application_packages (job_id, profile_id) VALUES (:j, :p) RETURNING id"
+            ),
+            {"j": j, "p": p},
+        ).scalar()
+        conn.execute(
+            text(
+                "INSERT INTO application_answers (package_id, question, question_hash, answer, "
+                "source) VALUES (:k, 'Q', :h, 'A', 'rules')"
+            ),
+            {"k": pkg, "h": "c" * 64},
+        )
+    command.downgrade(cfg, "0004")
+    with eng.connect() as conn:
+        assert [tuple(r) for r in conn.execute(text("SELECT content FROM cover_letters"))] == [
+            ("Draft 2",)
+        ]
+        assert conn.execute(text("SELECT count(*) FROM application_answers")).scalar() == 0
+        assert "application_packages" not in inspect(eng).get_table_names()
+    command.upgrade(cfg, "head")
+
+
+def test_0006_enforces_approval_mode_and_user_confirmation(db):
+    """The database itself refuses autonomous runs, a submission without the
+    user's confirmation, and two active runs for one application."""
+    import sqlalchemy.exc
+
+    eng, cfg = db
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        j = conn.execute(
+            text(
+                "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                "VALUES (:c, '1', 'Eng', 'https://x.test/1', :h) RETURNING id"
+            ),
+            {"c": c, "h": "d" * 64},
+        ).scalar()
+        a = conn.execute(
+            text("INSERT INTO applications (job_id, profile_id) VALUES (:j, :p) RETURNING id"),
+            {"j": j, "p": p},
+        ).scalar()
+    insert = (
+        "INSERT INTO application_submissions (application_id, platform, apply_url{cols}) "
+        "VALUES (:a, 'lever', 'https://jobs.lever.co/a/1/apply'{vals}) RETURNING id"
+    )
+
+    def attempt(cols: str = "", vals: str = "", **params) -> None:
+        with eng.begin() as conn:
+            conn.execute(text(insert.format(cols=cols, vals=vals)), {"a": a, **params})
+
+    for cols, vals in (
+        (", mode", ", 'AUTONOMOUS_MODE'"),  # not built: refused
+        (", status, submitted_at", ", 'submitted', now()"),  # never without confirmation
+        (", status", ", 'failed'"),  # a failure records when and why
+    ):
+        with pytest.raises(sqlalchemy.exc.IntegrityError):
+            attempt(cols, vals)
+    attempt()  # queued
+    with pytest.raises(sqlalchemy.exc.IntegrityError):
+        attempt()  # a second active run for the same application
+    attempt(", status, cancelled_at", ", 'cancelled', now()")  # finished runs may pile up
+    attempt(", status, confirmed_at, submitted_at", ", 'submitted', now(), now()")
+    with eng.begin() as conn:
+        sid = conn.execute(text("SELECT id FROM application_submissions LIMIT 1")).scalar()
+        conn.execute(
+            text("INSERT INTO automation_logs (submission_id, message) VALUES (:s, 'opened')"),
+            {"s": sid},
+        )
+    command.downgrade(cfg, "0005")
+    assert "application_submissions" not in inspect(eng).get_table_names()
+    assert "automation_logs" not in inspect(eng).get_table_names()
+    command.upgrade(cfg, "head")
+
+
+def test_0007_outcomes_rules_and_downgrade(db):
+    """Outcomes need a sent application; responses and offers are completed events;
+    downgrade keeps withdrawn applications as submitted and drops the new tables."""
+    import sqlalchemy.exc
+
+    eng, cfg = db
+    with eng.begin() as conn:
+        p = conn.execute(
+            text("INSERT INTO candidate_profiles (full_name) VALUES ('X') RETURNING id")
+        ).scalar()
+        c = conn.execute(
+            text(
+                "INSERT INTO companies (name, source, slug) VALUES ('A', 'lever', 'a') RETURNING id"
+            )
+        ).scalar()
+        jobs = [
+            conn.execute(
+                text(
+                    "INSERT INTO jobs (company_id, external_id, title, url, dedup_key) "
+                    "VALUES (:c, :e, 'Eng', :u, :h) RETURNING id"
+                ),
+                {"c": c, "e": str(n), "u": f"https://x.test/{n}", "h": str(n) * 64},
+            ).scalar()
+            for n in (1, 2)
+        ]
+        sent = conn.execute(
+            text(
+                "INSERT INTO applications (job_id, profile_id, status, submitted_at, "
+                "withdrawn_at) VALUES (:j, :p, 'withdrawn', now(), now()) RETURNING id"
+            ),
+            {"j": jobs[0], "p": p},
+        ).scalar()
+        draft = conn.execute(
+            text("INSERT INTO applications (job_id, profile_id) VALUES (:j, :p) RETURNING id"),
+            {"j": jobs[1], "p": p},
+        ).scalar()
+        conn.execute(
+            text(
+                "INSERT INTO interview_events (application_id, stage, status, occurred_at) "
+                "VALUES (:a, 'phone_screen', 'scheduled', now())"
+            ),
+            {"a": sent},
+        )
+        conn.execute(text("UPDATE companies SET industry = 'Fintech' WHERE id = :c"), {"c": c})
+
+    bad = (
+        ("UPDATE applications SET offer_at = now() WHERE id = :a", {"a": draft}),
+        ("INSERT INTO interview_events (application_id, stage, status, occurred_at) "
+         "VALUES (:a, 'offer', 'scheduled', now())", {"a": sent}),
+        ("UPDATE companies SET industry = '  ' WHERE id = :c", {"c": c}),
+        ("INSERT INTO recommendation_states (key, status) VALUES ('Bad Key!', 'done')", {}),
+    )  # fmt: skip
+    for sql, params in bad:
+        with pytest.raises(sqlalchemy.exc.IntegrityError), eng.begin() as conn:
+            conn.execute(text(sql), params)
+
+    command.downgrade(cfg, "0006")
+    with eng.connect() as conn:
+        assert (
+            conn.execute(
+                text("SELECT status FROM applications WHERE id = :a"), {"a": sent}
+            ).scalar()
+            == "submitted"
+        )
+    names = inspect(eng).get_table_names()
+    assert not {"interview_events", "learning_snapshots", "recommendation_states"} & set(names)
+    command.upgrade(cfg, "head")

@@ -8,6 +8,7 @@ transaction is open.
 import asyncio
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -42,6 +43,9 @@ class ResumeProcessor:
     # One profile build at a time: a manual "regenerate" and an upload-triggered
     # build must not interleave their writes.
     _profile_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
+    # Called after a profile build is saved (bootstrap: re-filter and re-score
+    # jobs for the new profile). Its failure never fails the build.
+    after_profile: Callable[[], Awaitable[Any]] | None = field(default=None, repr=False)
 
     def _resume_service(self, session: AsyncSession) -> ResumeService:
         return ResumeService(
@@ -109,9 +113,17 @@ class ResumeProcessor:
         use_llm: bool = True,
     ) -> dict[str, Any]:
         async with self._profile_lock:
-            return await self._generate_profile(
+            result = await self._generate_profile(
                 resume_id=resume_id, keep_overrides=keep_overrides, use_llm=use_llm
             )
+        if self.after_profile is not None:
+            try:
+                await self.after_profile()
+                result["jobs_rescored"] = True
+            except Exception:
+                logger.exception("re-scoring after the profile build failed")
+                result["jobs_rescored"] = False
+        return result
 
     async def _generate_profile(
         self, *, resume_id: uuid.UUID | None, keep_overrides: bool, use_llm: bool

@@ -167,6 +167,18 @@ async def test_incomplete_response_never_expires(app, client):
 
 
 @respx.mock
+async def test_an_empty_board_is_flagged(app, client):
+    """A board that answers with no jobs (the company moved to another board)
+    is crawled successfully but carries a note, so the user can spot it."""
+    mock_greenhouse(jobs={"jobs": [], "meta": {"total": 0}})
+    await add(client, "greenhouse", "acme")
+    result = await run(app)
+    detail = result["details"][0]
+    assert detail["status"] == "ok" and detail["found"] == 0
+    assert any("no open jobs" in n for n in detail["notes"])
+
+
+@respx.mock
 async def test_cross_board_and_url_duplicates_are_skipped(app, client):
     mock_greenhouse()
     await add(client, "greenhouse", "acme")
@@ -253,17 +265,17 @@ async def test_scheduled_refresh_only_crawls_due_companies(app, client):
 
     route = mock_greenhouse()
     await add(client, "greenhouse", "acme")
-    first = await run_discovery_cycle(app.state.discovery)
+    first = await run_discovery_cycle(app.state.pipeline)
     assert first["skipped"] is False and first["companies_total"] == 1
     assert route.call_count == 1
 
     # Crawled just now: not due, nothing fetched.
-    second = await run_discovery_cycle(app.state.discovery)
+    second = await run_discovery_cycle(app.state.pipeline)
     assert second["companies_total"] == 0 and route.call_count == 1
 
     async with get_engine().begin() as conn:
         await conn.execute(text("UPDATE companies SET last_crawled_at = now() - interval '1 day'"))
-    third = await run_discovery_cycle(app.state.discovery)
+    third = await run_discovery_cycle(app.state.pipeline)
     assert third["companies_total"] == 1 and route.call_count == 2
     triggers = await scalar("SELECT string_agg(DISTINCT trigger, ',') FROM discovery_runs")
     assert triggers == "scheduled"

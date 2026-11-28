@@ -4,7 +4,7 @@
 
 import useSWR from "swr";
 
-import { companiesApi, discoveryApi, jobsApi } from "@/lib/api/jobs";
+import { companiesApi, discoveryApi, jobsApi, scoringApi } from "@/lib/api/jobs";
 import type {
   Company,
   DirectoryEntry,
@@ -15,6 +15,7 @@ import type {
   JobSearch,
   JobSummary,
   Page,
+  ScoringSummary,
   SourceHealth,
 } from "@/types";
 
@@ -55,4 +56,11 @@ export function useDiscoveryRun(id: string | null) {
 
 export function useConnectorHealth(probe: boolean) {
   return useSWR<SourceHealth[]>(["connector-health", probe], () => discoveryApi.health(probe));
+}
+
+/** Filtering/scoring status; polls every 2 s while a run is going. */
+export function useScoringSummary() {
+  return useSWR<ScoringSummary>("scoring-summary", scoringApi.summary, {
+    refreshInterval: (s) => (s?.task_running ? 2000 : 0),
+  });
 }

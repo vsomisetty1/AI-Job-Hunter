@@ -1,7 +1,7 @@
 -- =====================================================================
 -- AI Job Hunter - PostgreSQL schema (requires PostgreSQL 15+)
 --
--- Reference copy of the schema at Alembic head (migrations 0001-0003).
+-- Reference copy of the schema at Alembic head (migrations 0001-0007).
 -- Migrations execute frozen SQL files in migrations/sql/; an integration
 -- test checks that this file and the migrated database have the same
 -- catalog (columns, constraints, indexes, triggers).
@@ -129,6 +129,8 @@ CREATE TABLE companies (
     last_crawl_status    text,
     last_error           text,
     consecutive_failures integer NOT NULL DEFAULT 0,
+    -- Set by the user (never inferred), for analytics.
+    industry            text,
     created_at           timestamptz NOT NULL DEFAULT now(),
     updated_at           timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT ck_companies_name CHECK (btrim(name) <> ''),
@@ -137,6 +139,8 @@ CREATE TABLE companies (
     CONSTRAINT ck_companies_crawl_status
         CHECK (last_crawl_status IS NULL OR last_crawl_status IN ('ok', 'error', 'not_found')),
     CONSTRAINT ck_companies_failures CHECK (consecutive_failures >= 0),
+    CONSTRAINT ck_companies_industry
+        CHECK (industry IS NULL OR (btrim(industry) <> '' AND length(industry) <= 80)),
     CONSTRAINT uq_companies_source_slug UNIQUE (source, slug)
 );
 -- Crawl scheduler: tracked companies, never-crawled first, then oldest crawl.
@@ -174,6 +178,13 @@ CREATE TABLE jobs (
     content_hash      text,
     status            text NOT NULL DEFAULT 'new',
     filter_reason     text,
+    -- Rule-filter decision: {"passed", "version", "checks": [{"rule", "passed", "reason"}]}
+    filter_result     jsonb,
+    -- Hash of rule version + preferences + the job fields the rules read.
+    filter_hash       text,
+    filtered_at       timestamptz,
+    -- The same posting already stored from another board (earliest kept).
+    duplicate_of      uuid,
     posted_at         timestamptz,
     first_seen_at     timestamptz NOT NULL DEFAULT now(),
     last_seen_at      timestamptz NOT NULL DEFAULT now(),
@@ -187,6 +198,8 @@ CREATE TABLE jobs (
     -- by deleting a company row.
     CONSTRAINT fk_jobs_company_id
         FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_jobs_duplicate_of
+        FOREIGN KEY (duplicate_of) REFERENCES jobs(id) ON DELETE SET NULL,
     CONSTRAINT ck_jobs_external_id CHECK (btrim(external_id) <> ''),
     CONSTRAINT ck_jobs_title CHECK (btrim(title) <> ''),
     CONSTRAINT ck_jobs_remote_type
@@ -207,6 +220,14 @@ CREATE TABLE jobs (
     CONSTRAINT ck_jobs_requirements_json CHECK (jsonb_typeof(requirements) = 'array'),
     CONSTRAINT ck_jobs_raw_json CHECK (raw IS NULL OR jsonb_typeof(raw) = 'object'),
     CONSTRAINT ck_jobs_seen_order CHECK (last_seen_at >= first_seen_at),
+    CONSTRAINT ck_jobs_not_own_duplicate CHECK (duplicate_of IS NULL OR duplicate_of <> id),
+    CONSTRAINT ck_jobs_filter_result_json
+        CHECK (filter_result IS NULL OR jsonb_typeof(filter_result) = 'object'),
+    CONSTRAINT ck_jobs_filter_hash
+        CHECK (filter_hash IS NULL OR filter_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_jobs_filtered_consistent
+        CHECK ((filter_result IS NULL) = (filtered_at IS NULL)
+               AND (filter_hash IS NULL) = (filtered_at IS NULL)),
     CONSTRAINT uq_jobs_company_external UNIQUE (company_id, external_id),
     CONSTRAINT uq_jobs_url UNIQUE (url)
 );
@@ -216,6 +237,7 @@ CREATE INDEX ix_jobs_dedup_key ON jobs (dedup_key);
 -- Expiry sweep: jobs of a company not seen in the latest crawl.
 CREATE INDEX ix_jobs_company_last_seen ON jobs (company_id, last_seen_at);
 CREATE INDEX ix_jobs_posted_at ON jobs (posted_at DESC NULLS LAST);
+CREATE INDEX ix_jobs_duplicate_of ON jobs (duplicate_of) WHERE duplicate_of IS NOT NULL;
 CREATE TRIGGER trg_jobs_updated
     BEFORE UPDATE ON jobs
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -240,14 +262,27 @@ CREATE TABLE resume_versions (
     docx_path      text,
     ats_keywords   text[] NOT NULL DEFAULT '{}',
     change_summary text,
+    -- Tailored versions: the parsed version they were built from, every
+    -- change with its reason, and the tailoring notes.
+    base_version_id uuid,
+    -- [{"section", "item", "field", "before", "after", "reason", "at"}]
+    changes        jsonb NOT NULL DEFAULT '[]'::jsonb,
+    -- {"method", "matched_skills", "missing_skills", "notes", "model", ...}
+    tailoring      jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT fk_resume_versions_base_version_id
+        FOREIGN KEY (base_version_id) REFERENCES resume_versions(id) ON DELETE SET NULL,
     CONSTRAINT fk_resume_versions_resume_id
         FOREIGN KEY (resume_id) REFERENCES resumes(id) ON DELETE CASCADE,
     CONSTRAINT fk_resume_versions_job_id
         FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
     CONSTRAINT ck_resume_versions_version CHECK (version_number >= 1),
     CONSTRAINT ck_resume_versions_content_json CHECK (jsonb_typeof(content) = 'object'),
+    CONSTRAINT ck_resume_versions_changes_json CHECK (jsonb_typeof(changes) = 'array'),
+    CONSTRAINT ck_resume_versions_tailoring_json CHECK (jsonb_typeof(tailoring) = 'object'),
+    CONSTRAINT ck_resume_versions_base_only_tailored
+        CHECK (base_version_id IS NULL OR kind = 'tailored'),
     CONSTRAINT ck_resume_versions_kind CHECK (kind IN ('original', 'parsed', 'tailored')),
     CONSTRAINT ck_resume_versions_source
         CHECK (source IN ('upload', 'parser', 'user_edit', 'tailoring')),
@@ -267,51 +302,83 @@ CREATE TABLE resume_versions (
 CREATE INDEX ix_resume_versions_job_id ON resume_versions (job_id);
 CREATE INDEX ix_resume_versions_resume_kind
     ON resume_versions (resume_id, kind, version_number DESC);
+CREATE INDEX ix_resume_versions_base_version_id
+    ON resume_versions (base_version_id) WHERE base_version_id IS NOT NULL;
 CREATE TRIGGER trg_resume_versions_updated
     BEFORE UPDATE ON resume_versions
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------
--- job_scores: Claude scoring output (cached per prompt version).
--- All scores are integer percentages 0-100.
+-- job_scores: one current score per job + profile + scoring method.
+--   rules:  deterministic scorer (always available, no tokens)
+--   claude: optional Claude scoring of a shortlist
+-- All scores are integer percentages 0-100. Claude-only fields
+-- (interview_probability, growth_score, company_score) are NULL for rules.
 -- ---------------------------------------------------------------------
 CREATE TABLE job_scores (
     id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id                uuid NOT NULL,
     profile_id            uuid NOT NULL,
+    scoring_method        text NOT NULL DEFAULT 'rules',
     overall_score         smallint NOT NULL,
-    interview_probability smallint NOT NULL,
-    salary_score          smallint NOT NULL,
-    growth_score          smallint NOT NULL,
-    company_score         smallint NOT NULL,
+    skills_score          smallint,
+    seniority_score       smallint,
+    location_score        smallint,
+    relevance_score       smallint,
+    salary_score          smallint,
+    interview_probability smallint,
+    growth_score          smallint,
+    company_score         smallint,
     rationale             text,
     matched_skills        jsonb NOT NULL DEFAULT '[]'::jsonb,
     missing_skills        jsonb NOT NULL DEFAULT '[]'::jsonb,
-    model                 text NOT NULL,
-    prompt_version        text NOT NULL,
+    -- Per-component scores, weights and the evidence behind them.
+    breakdown             jsonb NOT NULL DEFAULT '{}'::jsonb,
+    -- Hash of everything the score was computed from (skip unchanged reruns).
+    input_hash            text,
+    model                 text,
+    prompt_version        text,
     input_tokens          integer NOT NULL DEFAULT 0,
     output_tokens         integer NOT NULL DEFAULT 0,
     created_at            timestamptz NOT NULL DEFAULT now(),
+    updated_at            timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT fk_job_scores_job_id
         FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
     CONSTRAINT fk_job_scores_profile_id
         FOREIGN KEY (profile_id) REFERENCES candidate_profiles(id) ON DELETE CASCADE,
+    CONSTRAINT ck_job_scores_method CHECK (scoring_method IN ('rules', 'claude')),
     CONSTRAINT ck_job_scores_overall CHECK (overall_score BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_interview CHECK (interview_probability BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_salary CHECK (salary_score BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_growth CHECK (growth_score BETWEEN 0 AND 100),
     CONSTRAINT ck_job_scores_company CHECK (company_score BETWEEN 0 AND 100),
+    CONSTRAINT ck_job_scores_components CHECK (
+        (skills_score IS NULL OR skills_score BETWEEN 0 AND 100)
+        AND (seniority_score IS NULL OR seniority_score BETWEEN 0 AND 100)
+        AND (location_score IS NULL OR location_score BETWEEN 0 AND 100)
+        AND (relevance_score IS NULL OR relevance_score BETWEEN 0 AND 100)),
+    CONSTRAINT ck_job_scores_claude_fields
+        CHECK (scoring_method <> 'claude' OR (model IS NOT NULL AND prompt_version IS NOT NULL)),
+    CONSTRAINT ck_job_scores_rules_no_tokens
+        CHECK (scoring_method <> 'rules' OR (input_tokens = 0 AND output_tokens = 0)),
     CONSTRAINT ck_job_scores_tokens CHECK (input_tokens >= 0 AND output_tokens >= 0),
     CONSTRAINT ck_job_scores_skills_json
         CHECK (jsonb_typeof(matched_skills) = 'array' AND jsonb_typeof(missing_skills) = 'array'),
-    CONSTRAINT uq_job_scores_job_profile_prompt UNIQUE (job_id, profile_id, prompt_version),
+    CONSTRAINT ck_job_scores_breakdown_json CHECK (jsonb_typeof(breakdown) = 'object'),
+    CONSTRAINT ck_job_scores_input_hash
+        CHECK (input_hash IS NULL OR input_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT uq_job_scores_job_profile_method UNIQUE (job_id, profile_id, scoring_method),
     -- Target for the composite FK from applications (same-job guarantee).
     CONSTRAINT uq_job_scores_id_job UNIQUE (id, job_id)
 );
 CREATE INDEX ix_job_scores_profile_overall ON job_scores (profile_id, overall_score DESC);
+CREATE TRIGGER trg_job_scores_updated
+    BEFORE UPDATE ON job_scores
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------
--- cover_letters: one per job per profile (regeneration overwrites)
+-- cover_letters: every generated version is kept (version_number per job
+-- and profile); method says how it was written
 -- ---------------------------------------------------------------------
 CREATE TABLE cover_letters (
     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -321,6 +388,13 @@ CREATE TABLE cover_letters (
     pdf_path   text,
     docx_path  text,
     model      text,
+    version_number integer NOT NULL DEFAULT 1,
+    word_count integer NOT NULL DEFAULT 0,
+    -- rules: composed from profile/resume facts; claude: written by Claude
+    -- and checked against those facts
+    method     text NOT NULL DEFAULT 'rules',
+    -- {"facts": [...], "notes": [...], "prompt_version", ...}
+    generation jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT fk_cover_letters_job_id
@@ -328,7 +402,12 @@ CREATE TABLE cover_letters (
     CONSTRAINT fk_cover_letters_profile_id
         FOREIGN KEY (profile_id) REFERENCES candidate_profiles(id) ON DELETE CASCADE,
     CONSTRAINT ck_cover_letters_content CHECK (btrim(content) <> ''),
-    CONSTRAINT uq_cover_letters_job_profile UNIQUE (job_id, profile_id),
+    CONSTRAINT ck_cover_letters_version CHECK (version_number >= 1),
+    CONSTRAINT ck_cover_letters_word_count CHECK (word_count >= 0),
+    CONSTRAINT ck_cover_letters_method CHECK (method IN ('rules', 'claude')),
+    CONSTRAINT ck_cover_letters_generation_json CHECK (jsonb_typeof(generation) = 'object'),
+    CONSTRAINT uq_cover_letters_job_profile_version
+        UNIQUE (job_id, profile_id, version_number),
     -- Target for the composite FK from applications (same-job guarantee).
     CONSTRAINT uq_cover_letters_id_job UNIQUE (id, job_id)
 );
@@ -363,6 +442,12 @@ CREATE TABLE applications (
     notes               text,
     approved_at         timestamptz,
     submitted_at        timestamptz,
+    -- Outcome milestones, derived from interview_events (Phase 9)
+    responded_at        timestamptz,
+    first_interview_at  timestamptz,
+    offer_at            timestamptz,
+    rejected_at         timestamptz,
+    withdrawn_at        timestamptz,
     status_updated_at   timestamptz NOT NULL DEFAULT now(),
     created_at          timestamptz NOT NULL DEFAULT now(),
     updated_at          timestamptz NOT NULL DEFAULT now(),
@@ -381,7 +466,8 @@ CREATE TABLE applications (
         FOREIGN KEY (job_score_id, job_id)
         REFERENCES job_scores(id, job_id) ON DELETE SET NULL (job_score_id),
     CONSTRAINT ck_applications_status
-        CHECK (status IN ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer')),
+        CHECK (status IN ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer',
+                          'withdrawn')),
     CONSTRAINT ck_applications_automation_state
         CHECK (automation_state IN ('pending', 'in_progress', 'needs_manual', 'failed', 'completed')),
     CONSTRAINT ck_applications_mode
@@ -392,6 +478,9 @@ CREATE TABLE applications (
         CHECK (status IN ('drafted', 'ready') OR submitted_at IS NOT NULL),
     CONSTRAINT ck_applications_completed_submitted
         CHECK (automation_state <> 'completed' OR submitted_at IS NOT NULL),
+    CONSTRAINT ck_applications_outcomes_after_submit
+        CHECK (submitted_at IS NOT NULL OR (responded_at IS NULL AND first_interview_at IS NULL
+               AND offer_at IS NULL AND rejected_at IS NULL AND withdrawn_at IS NULL)),
     CONSTRAINT uq_applications_job_profile UNIQUE (job_id, profile_id)
 );
 CREATE INDEX ix_applications_status_updated ON applications (status, status_updated_at DESC);
@@ -412,6 +501,99 @@ CREATE TRIGGER trg_applications_updated
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------
+-- application_packages: tailored resume + cover letter + answers for one
+-- job, with the review/approval lifecycle. Versioned per job and profile;
+-- at most one live package (regenerating supersedes the old one).
+-- ---------------------------------------------------------------------
+CREATE TABLE application_packages (
+    id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id                 uuid NOT NULL,
+    profile_id             uuid NOT NULL,
+    version_number         integer NOT NULL DEFAULT 1,
+    -- generating -> generated -> reviewed -> approved -> submitted;
+    -- rejected, failed and superseded end a package.
+    status                 text NOT NULL DEFAULT 'generating',
+    job_score_id           uuid,
+    base_resume_version_id uuid,
+    resume_version_id      uuid,
+    cover_letter_id        uuid,
+    -- Set on approval: the application row automation will work from.
+    application_id         uuid,
+    -- The score as it was when the package was generated (scores change).
+    score_snapshot         jsonb NOT NULL DEFAULT '{}'::jsonb,
+    -- {"use_llm", "llm_used", "warnings", "steps", "usage"}
+    generation             jsonb NOT NULL DEFAULT '{}'::jsonb,
+    error                  text,
+    review_notes           text,
+    rejection_reason       text,
+    generated_at           timestamptz,
+    reviewed_at            timestamptz,
+    approved_at            timestamptz,
+    rejected_at            timestamptz,
+    submitted_at           timestamptz,
+    created_at             timestamptz NOT NULL DEFAULT now(),
+    updated_at             timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT fk_application_packages_job_id
+        FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+    CONSTRAINT fk_application_packages_profile_id
+        FOREIGN KEY (profile_id) REFERENCES candidate_profiles(id) ON DELETE CASCADE,
+    -- Composite FKs: every artifact belongs to the package's job.
+    CONSTRAINT fk_application_packages_job_score_id
+        FOREIGN KEY (job_score_id, job_id)
+        REFERENCES job_scores(id, job_id) ON DELETE SET NULL (job_score_id),
+    CONSTRAINT fk_application_packages_resume_version_id
+        FOREIGN KEY (resume_version_id, job_id)
+        REFERENCES resume_versions(id, job_id) ON DELETE SET NULL (resume_version_id),
+    CONSTRAINT fk_application_packages_cover_letter_id
+        FOREIGN KEY (cover_letter_id, job_id)
+        REFERENCES cover_letters(id, job_id) ON DELETE SET NULL (cover_letter_id),
+    CONSTRAINT fk_application_packages_base_resume_version_id
+        FOREIGN KEY (base_resume_version_id) REFERENCES resume_versions(id) ON DELETE SET NULL,
+    CONSTRAINT fk_application_packages_application_id
+        FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL,
+    CONSTRAINT ck_application_packages_status CHECK (status IN (
+        'generating', 'generated', 'reviewed', 'approved', 'rejected', 'submitted', 'failed',
+        'superseded')),
+    CONSTRAINT ck_application_packages_version CHECK (version_number >= 1),
+    CONSTRAINT ck_application_packages_score_json CHECK (jsonb_typeof(score_snapshot) = 'object'),
+    CONSTRAINT ck_application_packages_generation_json
+        CHECK (jsonb_typeof(generation) = 'object'),
+    -- Lifecycle timestamps follow the status.
+    CONSTRAINT ck_application_packages_generated
+        CHECK (status IN ('generating', 'failed') OR generated_at IS NOT NULL),
+    CONSTRAINT ck_application_packages_approved
+        CHECK (status NOT IN ('approved', 'submitted') OR approved_at IS NOT NULL),
+    CONSTRAINT ck_application_packages_rejected
+        CHECK (status <> 'rejected' OR rejected_at IS NOT NULL),
+    CONSTRAINT ck_application_packages_submitted
+        CHECK (status <> 'submitted' OR submitted_at IS NOT NULL),
+    CONSTRAINT ck_application_packages_failed CHECK (status <> 'failed' OR error IS NOT NULL),
+    CONSTRAINT uq_application_packages_job_profile_version
+        UNIQUE (job_id, profile_id, version_number)
+);
+-- One live package per job and profile; regenerating supersedes the old one.
+CREATE UNIQUE INDEX uq_application_packages_live
+    ON application_packages (job_id, profile_id)
+    WHERE status IN ('generating', 'generated', 'reviewed', 'approved', 'submitted');
+-- The approval queue.
+CREATE INDEX ix_application_packages_status_created
+    ON application_packages (status, created_at DESC);
+CREATE INDEX ix_application_packages_profile_id ON application_packages (profile_id);
+CREATE INDEX ix_application_packages_job_score_id
+    ON application_packages (job_score_id) WHERE job_score_id IS NOT NULL;
+CREATE INDEX ix_application_packages_resume_version_id
+    ON application_packages (resume_version_id) WHERE resume_version_id IS NOT NULL;
+CREATE INDEX ix_application_packages_base_resume_version_id
+    ON application_packages (base_resume_version_id) WHERE base_resume_version_id IS NOT NULL;
+CREATE INDEX ix_application_packages_cover_letter_id
+    ON application_packages (cover_letter_id) WHERE cover_letter_id IS NOT NULL;
+CREATE INDEX ix_application_packages_application_id
+    ON application_packages (application_id) WHERE application_id IS NOT NULL;
+CREATE TRIGGER trg_application_packages_updated
+    BEFORE UPDATE ON application_packages
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ---------------------------------------------------------------------
 -- application_events: append-only audit trail (replaces a JSON history
 -- column, which cannot be indexed, queried or safely appended to)
 -- ---------------------------------------------------------------------
@@ -428,14 +610,15 @@ CREATE TABLE application_events (
         FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
     CONSTRAINT ck_application_events_type
         CHECK (event_type IN ('created', 'status_changed', 'approved', 'automation_started',
-                              'checkpoint', 'retry', 'needs_manual', 'failed', 'submitted', 'note')),
+                              'checkpoint', 'retry', 'needs_manual', 'failed', 'submitted', 'note',
+                              'outcome_recorded', 'outcome_updated', 'outcome_removed')),
     CONSTRAINT ck_application_events_actor CHECK (actor IN ('system', 'user', 'agent')),
     CONSTRAINT ck_application_events_from_status
         CHECK (from_status IS NULL OR from_status IN
-               ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer')),
+               ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer', 'withdrawn')),
     CONSTRAINT ck_application_events_to_status
         CHECK (to_status IS NULL OR to_status IN
-               ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer')),
+               ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer', 'withdrawn')),
     CONSTRAINT ck_application_events_detail_json CHECK (jsonb_typeof(detail) = 'object')
 );
 CREATE INDEX ix_application_events_app_created
@@ -446,7 +629,9 @@ CREATE INDEX ix_application_events_app_created
 -- ---------------------------------------------------------------------
 CREATE TABLE application_answers (
     id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    application_id uuid NOT NULL,
+    -- Owner: the application, or (before one exists) the package.
+    application_id uuid,
+    package_id     uuid,
     question       text NOT NULL,
     -- sha256 of the normalized question text
     question_hash  text NOT NULL,
@@ -456,16 +641,25 @@ CREATE TABLE application_answers (
     source         text NOT NULL,
     confidence     numeric(3,2),
     needs_review   boolean NOT NULL DEFAULT false,
+    -- Facts the answer was built from: [{"source", "fact"}]
+    evidence       jsonb NOT NULL DEFAULT '[]'::jsonb,
     created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at     timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT fk_application_answers_application_id
         FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+    CONSTRAINT fk_application_answers_package_id
+        FOREIGN KEY (package_id) REFERENCES application_packages(id) ON DELETE CASCADE,
+    CONSTRAINT ck_application_answers_one_owner
+        CHECK (num_nonnulls(application_id, package_id) = 1),
+    CONSTRAINT ck_application_answers_evidence_json CHECK (jsonb_typeof(evidence) = 'array'),
+    CONSTRAINT ck_application_answers_answer CHECK (btrim(answer) <> ''),
     CONSTRAINT ck_application_answers_source
-        CHECK (source IN ('profile', 'settings', 'llm', 'user')),
+        CHECK (source IN ('profile', 'settings', 'rules', 'llm', 'user')),
     CONSTRAINT ck_application_answers_confidence
         CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
     CONSTRAINT ck_application_answers_hash CHECK (question_hash ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT uq_application_answers_app_question UNIQUE (application_id, question_hash)
+    CONSTRAINT uq_application_answers_app_question UNIQUE (application_id, question_hash),
+    CONSTRAINT uq_application_answers_package_question UNIQUE (package_id, question_hash)
 );
 CREATE INDEX ix_application_answers_needs_review
     ON application_answers (application_id) WHERE needs_review;
@@ -537,6 +731,12 @@ CREATE TABLE settings (
     auto_apply_threshold  smallint NOT NULL DEFAULT 80,
     daily_application_cap smallint NOT NULL DEFAULT 10,
     discovery_enabled     boolean NOT NULL DEFAULT true,
+    -- Claude scoring runs only when enabled here AND an API key is set,
+    -- and only for jobs whose rule-based score reaches the minimum.
+    claude_scoring_enabled   boolean NOT NULL DEFAULT false,
+    claude_scoring_min_score smallint NOT NULL DEFAULT 60,
+    -- NULL: not stated (relocation answers are then flagged for review).
+    willing_to_relocate   boolean,
     -- Free-form extras (default answers, notice period, etc.)
     extra                 jsonb NOT NULL DEFAULT '{}'::jsonb,
     created_at            timestamptz NOT NULL DEFAULT now(),
@@ -548,6 +748,7 @@ CREATE TABLE settings (
         CHECK (application_mode IN ('APPROVAL_MODE', 'AUTONOMOUS_MODE')),
     CONSTRAINT ck_settings_threshold CHECK (auto_apply_threshold BETWEEN 0 AND 100),
     CONSTRAINT ck_settings_cap CHECK (daily_application_cap BETWEEN 0 AND 200),
+    CONSTRAINT ck_settings_claude_min_score CHECK (claude_scoring_min_score BETWEEN 0 AND 100),
     CONSTRAINT ck_settings_currency CHECK (salary_currency ~ '^[A-Z]{3}$'),
     CONSTRAINT ck_settings_salary
         CHECK ((salary_min IS NULL OR salary_min >= 0) AND (salary_target IS NULL OR salary_target >= 0)),
@@ -649,4 +850,167 @@ CREATE UNIQUE INDEX uq_discovery_runs_one_running ON discovery_runs ((true))
     WHERE status = 'running';
 CREATE TRIGGER trg_discovery_runs_updated
     BEFORE UPDATE ON discovery_runs
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ---------------------------------------------------------------------
+-- application_submissions / automation_logs: browser runs that fill an
+-- approved package (approval mode only) and their structured logs.
+-- ---------------------------------------------------------------------
+
+CREATE TABLE application_submissions (
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    application_id     uuid NOT NULL,
+    package_id         uuid,
+    platform           text NOT NULL,
+    apply_url          text NOT NULL,
+    mode               text NOT NULL DEFAULT 'APPROVAL_MODE',
+    status             text NOT NULL DEFAULT 'queued',
+    -- Last checkpointed step: where a retry resumes from.
+    step               text NOT NULL DEFAULT 'queued',
+    -- {"fields": [...], "uploads": {...}, "url": ..., "plan_version": ...}
+    checkpoint         jsonb NOT NULL DEFAULT '{}'::jsonb,
+    -- {"resume", "cover_letter", "answers", "missing", "problems", ...}
+    review             jsonb NOT NULL DEFAULT '{}'::jsonb,
+    -- field key -> value typed by the user during review
+    edits              jsonb NOT NULL DEFAULT '{}'::jsonb,
+    -- [{"path", "step", "label", "at"}]
+    screenshots        jsonb NOT NULL DEFAULT '[]'::jsonb,
+    attempts           integer NOT NULL DEFAULT 0,
+    error              text,
+    error_kind         text,
+    confirmation_text  text,
+    confirmed_at       timestamptz,
+    queued_at          timestamptz NOT NULL DEFAULT now(),
+    started_at         timestamptz,
+    review_ready_at    timestamptz,
+    submitted_at       timestamptz,
+    failed_at          timestamptz,
+    cancelled_at       timestamptz,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT fk_application_submissions_application_id
+        FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+    CONSTRAINT fk_application_submissions_package_id
+        FOREIGN KEY (package_id) REFERENCES application_packages(id) ON DELETE SET NULL,
+    CONSTRAINT ck_application_submissions_platform
+        CHECK (platform IN ('greenhouse', 'lever', 'ashby')),
+    CONSTRAINT ck_application_submissions_apply_url CHECK (apply_url ~ '^https?://'),
+    CONSTRAINT ck_application_submissions_mode CHECK (mode IN ('APPROVAL_MODE')),
+    CONSTRAINT ck_application_submissions_status
+        CHECK (status IN ('queued', 'in_progress', 'waiting_for_review', 'submitting',
+                          'submitted', 'failed', 'cancelled')),
+    CONSTRAINT ck_application_submissions_step
+        CHECK (step IN ('queued', 'opening', 'filling', 'uploading', 'validating', 'review',
+                        'submitting', 'confirming', 'done')),
+    CONSTRAINT ck_application_submissions_error_kind
+        CHECK (error_kind IS NULL OR error_kind IN
+               ('browser_crash', 'timeout', 'network', 'upload_failed', 'validation_failed',
+                'ats_changed', 'captcha', 'job_closed', 'unconfirmed', 'interrupted',
+                'internal')),
+    CONSTRAINT ck_application_submissions_attempts CHECK (attempts >= 0),
+    CONSTRAINT ck_application_submissions_checkpoint_json
+        CHECK (jsonb_typeof(checkpoint) = 'object'),
+    CONSTRAINT ck_application_submissions_review_json CHECK (jsonb_typeof(review) = 'object'),
+    CONSTRAINT ck_application_submissions_edits_json CHECK (jsonb_typeof(edits) = 'object'),
+    CONSTRAINT ck_application_submissions_screenshots_json
+        CHECK (jsonb_typeof(screenshots) = 'array'),
+    -- Approval mode: nothing is submitted without the user's confirmation.
+    CONSTRAINT ck_application_submissions_confirmed
+        CHECK (status NOT IN ('submitting', 'submitted') OR confirmed_at IS NOT NULL),
+    CONSTRAINT ck_application_submissions_submitted_at
+        CHECK (status <> 'submitted' OR submitted_at IS NOT NULL),
+    CONSTRAINT ck_application_submissions_failed
+        CHECK (status <> 'failed' OR (failed_at IS NOT NULL AND error IS NOT NULL))
+);
+CREATE UNIQUE INDEX uq_application_submissions_active
+    ON application_submissions (application_id)
+    WHERE status IN ('queued', 'in_progress', 'waiting_for_review', 'submitting');
+CREATE INDEX ix_application_submissions_application_id
+    ON application_submissions (application_id, created_at);
+CREATE INDEX ix_application_submissions_package_id
+    ON application_submissions (package_id) WHERE package_id IS NOT NULL;
+CREATE INDEX ix_application_submissions_status
+    ON application_submissions (status, updated_at);
+CREATE TRIGGER trg_application_submissions_updated
+    BEFORE UPDATE ON application_submissions
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE automation_logs (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    submission_id  uuid NOT NULL,
+    level          text NOT NULL DEFAULT 'info',
+    step           text,
+    message        text NOT NULL,
+    detail         jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT fk_automation_logs_submission_id
+        FOREIGN KEY (submission_id) REFERENCES application_submissions(id) ON DELETE CASCADE,
+    CONSTRAINT ck_automation_logs_level CHECK (level IN ('debug', 'info', 'warning', 'error')),
+    CONSTRAINT ck_automation_logs_message CHECK (btrim(message) <> ''),
+    CONSTRAINT ck_automation_logs_detail_json CHECK (jsonb_typeof(detail) = 'object')
+);
+CREATE INDEX ix_automation_logs_submission_id ON automation_logs (submission_id, created_at);
+CREATE INDEX ix_automation_logs_created_at ON automation_logs (created_at);
+CREATE INDEX ix_automation_logs_level ON automation_logs (level, created_at)
+    WHERE level IN ('warning', 'error');
+
+-- ----------------------------------------------------- interview_events
+CREATE TABLE interview_events (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    application_id uuid NOT NULL,
+    stage          text NOT NULL,
+    status         text NOT NULL DEFAULT 'completed',
+    occurred_at    timestamptz NOT NULL,
+    notes          text,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT fk_interview_events_application_id
+        FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+    CONSTRAINT ck_interview_events_stage
+        CHECK (stage IN ('recruiter_response', 'recruiter_screen', 'phone_screen',
+                         'technical_interview', 'hiring_manager_interview', 'onsite',
+                         'final_round', 'offer', 'rejection', 'withdrawal')),
+    CONSTRAINT ck_interview_events_status
+        CHECK (status IN ('scheduled', 'completed', 'cancelled', 'no_show')),
+    -- A response, an offer, a rejection or a withdrawal has happened or it has not.
+    CONSTRAINT ck_interview_events_terminal_completed
+        CHECK (stage NOT IN ('recruiter_response', 'offer', 'rejection', 'withdrawal')
+               OR status = 'completed'),
+    CONSTRAINT ck_interview_events_notes CHECK (notes IS NULL OR length(notes) <= 4000)
+);
+CREATE INDEX ix_interview_events_application_id ON interview_events (application_id, occurred_at);
+CREATE INDEX ix_interview_events_stage ON interview_events (stage, occurred_at);
+CREATE TRIGGER trg_interview_events_updated
+    BEFORE UPDATE ON interview_events
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- --------------------------------------------------- learning_snapshots
+CREATE TABLE learning_snapshots (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- sha256 of the inputs: an unchanged history is not stored twice in a row
+    data_hash       text NOT NULL,
+    summary         jsonb NOT NULL DEFAULT '{}'::jsonb,
+    insights        jsonb NOT NULL DEFAULT '[]'::jsonb,
+    recommendations jsonb NOT NULL DEFAULT '[]'::jsonb,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_learning_snapshots_hash CHECK (data_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_learning_snapshots_summary_json CHECK (jsonb_typeof(summary) = 'object'),
+    CONSTRAINT ck_learning_snapshots_insights_json CHECK (jsonb_typeof(insights) = 'array'),
+    CONSTRAINT ck_learning_snapshots_recommendations_json
+        CHECK (jsonb_typeof(recommendations) = 'array')
+);
+CREATE INDEX ix_learning_snapshots_created_at ON learning_snapshots (created_at);
+
+-- ------------------------------------------------ recommendation_states
+CREATE TABLE recommendation_states (
+    key        text PRIMARY KEY,
+    status     text NOT NULL,
+    note       text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_recommendation_states_key CHECK (key ~ '^[a-z0-9_:.-]{1,200}$'),
+    CONSTRAINT ck_recommendation_states_status CHECK (status IN ('dismissed', 'done'))
+);
+CREATE TRIGGER trg_recommendation_states_updated
+    BEFORE UPDATE ON recommendation_states
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

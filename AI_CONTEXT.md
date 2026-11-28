@@ -146,6 +146,40 @@ AI cost.**
 6. **Fully automatic AI is opt-in.** Scheduled AI scoring or autonomous applying runs only
    if the owner adds an API key, ideally with a Console spend cap.
 
+**Truthfulness rules learned in MVP validation** (apply to any new generator, rule-based or
+Claude):
+- Claim a skill as *used* only where a resume line describes using it: a mention after
+  "future", "planned", "exposure to", "familiar with" or before "-ready"/"concepts" is intent,
+  not use (`relevance.strong_mentions`).
+- When a sentence promises evidence for a skill, the next quoted line must show it.
+- Use job titles as held, without arrangement qualifiers like "(Contract)" in prose
+  (`role_name`), and never invent a composite title.
+- Evidence is picked per posting (`relevance.JobTerms`), so two letters for two jobs differ.
+- Personal data from a real resume never goes into the repository: validation output lives
+  in the git-ignored `validation-output/`.
+
+**Learning rules (Phase 9, ADR-015)** for any analysis or advice shown to the user:
+- Use only recorded data (the user's applications, packages and outcomes). Never infer
+  facts such as a company's industry; let the user set them.
+- State a difference only when it passes the gates in `learning/insights.py` (group sizes,
+  minimum effect, Fisher exact + Holm); show the counts and the test with it. With too
+  little data, say so.
+- Recommendations link to where the user can act; never change settings, profile or
+  applications automatically, and never suggest adding a skill except "if you have it".
+- Outcome milestones are derived from interview events: never set them directly.
+
+**Automation rules (Phase 8, ADR-014)** for anything that touches an application form:
+- Approval mode only: nothing is submitted without the user's explicit confirmation; the
+  database enforces it (`mode` = APPROVAL_MODE, `confirmed_at` before submitting). Do not
+  add a code path that submits otherwise without a new ADR.
+- Find fields by meaning (labels, ARIA, legends, nearby text), never by hard-coded
+  selectors; platform adapters hold only what is truly platform-specific.
+- Never guess: no fact, no answer; never type a "needs review" package answer; never tick
+  consent; decline or skip voluntary self-identification.
+- Never retry a submission automatically; an unconfirmed one fails as `unconfirmed`.
+- Real-site testing uses a synthetic persona and documents (attaching a file uploads it to
+  the ATS), review mode only: `scripts/validate_automation.py`.
+
 Models are configurable (`CLAUDE_MODEL_SCORING`, `CLAUDE_MODEL_WRITING`,
 `CLAUDE_MODEL_ANALYSIS`). The defaults are the current small, mid and large models.
 
@@ -161,7 +195,7 @@ no HTML scraping.
 | Ashby | `GET api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true` | Whole board; `isListed`; structured compensation |
 
 A board is identified by `(source, slug)`, where the slug is the last part of the public
-careers URL. Application automation (Phase 7) will use the same three providers through
+careers URL. Application automation (Phase 8) uses the same three providers through
 `automation/platforms/`.
 
 ## Why Workday is deferred
@@ -192,9 +226,12 @@ Revisit after Phase 7, starting with discovery only (see ADR-008).
 
 | Phase | Content |
 |---|---|
-| 6 | Agent 4 rule filtering; Agent 5 scoring (deterministic baseline, optional Claude for a shortlist, Claude Code command path); scores in the Jobs UI; Settings page |
-| 7 | Application packages (Agents 6–9: tailored resume versions, generated resumes, cover letters, answers); Agent 10 Playwright automation for Greenhouse/Lever/Ashby, approval mode then autonomous mode with threshold and daily cap |
-| 8 | Dashboard, applications, activity pages; learning insights (`learning/`) |
+| 6 | Done: Agent 4 rule filtering; Agent 5 scoring (deterministic baseline, optional Claude for a shortlist); scores in the Jobs UI; Settings page (Claude Code command path still to do) |
+| 7 | Done: application packages (Agents 6–9: tailored resume versions with change log, PDF/DOCX, cover letters, answers) with an approval workflow |
+| MVP validation | Done: validated on a real resume and 5.4k real postings before automation (see `docs/MVP_VALIDATION.md`): parsing, relevance-ranked tailoring, specific and honest letters and answers, data lifecycle (ADR-013), faster scoring, expired jobs cannot be approved |
+| 8 | Done: application automation in **approval mode** (Agent 10, Playwright): fill approved packages into real Greenhouse/Lever/Ashby forms, review screen, confirmed submit, checkpoints and recovery, Applications UI (ADR-014, `docs/AUTOMATION_VALIDATION.md`) |
+| 9 | Done: learning and insights: interview and outcome tracking, Learning Agent (daily snapshots), analytics (rates with intervals, funnel, score accuracy, skill correlations, company / board / resume / package-style), statistically gated insights, recommendations; dashboard and insights pages (ADR-015) |
+| Next | Autonomous mode (threshold, daily cap) only after approval mode is validated in real use and the insights show what converts; agent activity page |
 | 9 | Docker images, full compose, deployment and Supabase docs (personal deployment; real auth before anything public) |
 | 10 | End-to-end tests (Playwright) in CI |
 | Later | Workday discovery; more providers; full-text search; optional multi-user mode (Supabase Auth) |

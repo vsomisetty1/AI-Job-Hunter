@@ -31,6 +31,8 @@ ignore = ["B008", "ASYNC109"]
 # Vocabulary tables: one row per line reads better than one entry per line.
 "app/parsing/skills.py" = ["E501"]
 "app/parsing/sections.py" = ["E501"]
+# JavaScript evaluated in the page.
+"app/automation/dom.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "tests"]
@@ -43,5 +45,5 @@ strict = true
 warn_unreachable = true
 # Third-party packages without type information.
 [[tool.mypy.overrides]]
-module = ["pdfplumber.*", "pdfminer.*", "docx.*", "storage3.*", "phonenumbers.*", "apscheduler.*", "rapidfuzz.*"]
+module = ["pdfplumber.*", "pdfminer.*", "docx.*", "storage3.*", "phonenumbers.*", "apscheduler.*", "rapidfuzz.*", "reportlab.*"]
 ignore_missing_imports = true

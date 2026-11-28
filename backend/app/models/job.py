@@ -46,6 +46,12 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     content_hash: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="new")
     filter_reason: Mapped[str | None] = mapped_column(Text)
+    filter_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    filter_hash: Mapped[str | None] = mapped_column(Text)
+    filtered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    duplicate_of: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL")
+    )
     posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -90,10 +96,30 @@ class Job(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint("jsonb_typeof(requirements) = 'array'", name="ck_jobs_requirements_json"),
         CheckConstraint("raw IS NULL OR jsonb_typeof(raw) = 'object'", name="ck_jobs_raw_json"),
         CheckConstraint("last_seen_at >= first_seen_at", name="ck_jobs_seen_order"),
+        CheckConstraint(
+            "duplicate_of IS NULL OR duplicate_of <> id", name="ck_jobs_not_own_duplicate"
+        ),
+        CheckConstraint(
+            "filter_result IS NULL OR jsonb_typeof(filter_result) = 'object'",
+            name="ck_jobs_filter_result_json",
+        ),
+        CheckConstraint(
+            "filter_hash IS NULL OR filter_hash ~ '^[0-9a-f]{64}$'", name="ck_jobs_filter_hash"
+        ),
+        CheckConstraint(
+            "(filter_result IS NULL) = (filtered_at IS NULL) "
+            "AND (filter_hash IS NULL) = (filtered_at IS NULL)",
+            name="ck_jobs_filtered_consistent",
+        ),
         UniqueConstraint("company_id", "external_id", name="uq_jobs_company_external"),
         UniqueConstraint("url", name="uq_jobs_url"),
         Index("ix_jobs_status_first_seen", "status", "first_seen_at"),
         Index("ix_jobs_dedup_key", "dedup_key"),
         Index("ix_jobs_company_last_seen", "company_id", "last_seen_at"),
         Index("ix_jobs_posted_at", text("posted_at DESC NULLS LAST")),
+        Index(
+            "ix_jobs_duplicate_of",
+            "duplicate_of",
+            postgresql_where=text("duplicate_of IS NOT NULL"),
+        ),
     )

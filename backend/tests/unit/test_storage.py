@@ -80,3 +80,20 @@ async def test_supabase_errors_mapped(respx_mock):
         await store.get("resumes/x.pdf")
     with pytest.raises(StorageError):
         await store.put("resumes/x.pdf", b"x", "application/pdf")
+
+
+async def test_local_storage_lists_files_recursively(tmp_path):
+    from app.storage import LocalStorage
+
+    s = LocalStorage(tmp_path)
+    await s.put("generated/a/one.pdf", b"12345", "application/pdf")
+    await s.put("generated/two.docx", b"12", "application/octet-stream")
+    await s.put("resumes/x.pdf", b"1", "application/pdf")
+    (tmp_path / "generated" / ".upload-partial").write_bytes(b"temp")  # in-flight write
+    files = await s.list_files("generated")
+    assert [(f.path, f.size) for f in files] == [
+        ("generated/a/one.pdf", 5),
+        ("generated/two.docx", 2),
+    ]
+    assert all(f.modified is not None for f in files)
+    assert await s.list_files("missing") == []

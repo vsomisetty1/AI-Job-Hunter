@@ -53,6 +53,12 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Outcome milestones, derived from interview_events (Phase 9).
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    first_interview_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    offer_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -84,7 +90,8 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             ondelete="SET NULL (job_score_id)",
         ),
         CheckConstraint(
-            "status IN ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer')",
+            "status IN ('drafted', 'ready', 'submitted', 'interview', 'rejected', 'offer', "
+            "'withdrawn')",
             name="ck_applications_status",
         ),
         CheckConstraint(
@@ -105,6 +112,11 @@ class Application(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "automation_state <> 'completed' OR submitted_at IS NOT NULL",
             name="ck_applications_completed_submitted",
+        ),
+        CheckConstraint(
+            "submitted_at IS NOT NULL OR (responded_at IS NULL AND first_interview_at IS NULL "
+            "AND offer_at IS NULL AND rejected_at IS NULL AND withdrawn_at IS NULL)",
+            name="ck_applications_outcomes_after_submit",
         ),
         UniqueConstraint("job_id", "profile_id", name="uq_applications_job_profile"),
         Index("ix_applications_status_updated", "status", text("status_updated_at DESC")),

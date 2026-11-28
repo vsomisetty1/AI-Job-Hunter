@@ -1,6 +1,18 @@
 import { vi } from "vitest";
 
-import type { CandidateProfile, Company, DiscoveryRunDetail, JobDetail, JobSummary, ParsedResume } from "@/types";
+import type {
+  CandidateProfile,
+  Company,
+  DiscoveryRunDetail,
+  JobDetail,
+  JobScore,
+  JobSummary,
+  PackageDetail,
+  ParsedResume,
+  ScoringSummary,
+  Settings,
+  SubmissionDetail,
+} from "@/types";
 
 export function parsedResume(overrides: Partial<ParsedResume> = {}): ParsedResume {
   return {
@@ -120,6 +132,94 @@ export function jobSummary(overrides: Partial<JobSummary> = {}): JobSummary {
     posted_at: "2026-11-20T10:00:00Z",
     first_seen_at: "2026-11-26T10:00:00Z",
     last_seen_at: "2026-11-27T10:00:00Z",
+    score: 82,
+    score_method: "rules",
+    filter_reason: null,
+    duplicate_of: null,
+    ...overrides,
+  };
+}
+
+export function jobScore(overrides: Partial<JobScore> = {}): JobScore {
+  return {
+    id: "s1",
+    job_id: "j1",
+    profile_id: "p1",
+    scoring_method: "rules",
+    overall_score: 82,
+    skills_score: 78,
+    seniority_score: 100,
+    location_score: 100,
+    relevance_score: 90,
+    salary_score: null,
+    interview_probability: null,
+    growth_score: null,
+    company_score: null,
+    rationale: "Skills: 3 of 4 skills match.",
+    matched_skills: ["Python", "PostgreSQL"],
+    missing_skills: ["Kubernetes"],
+    breakdown: {
+      confidence: 0.9,
+      components: {
+        skills: { score: 78, summary: "3 of 4 skills match; missing Kubernetes", detail: {} },
+        salary: { score: null, summary: "Salary not listed", detail: {} },
+      },
+    },
+    model: null,
+    prompt_version: null,
+    input_tokens: 0,
+    output_tokens: 0,
+    created_at: "2026-11-27T10:00:00Z",
+    updated_at: "2026-11-27T10:00:00Z",
+    is_current: true,
+    ...overrides,
+  };
+}
+
+export function scoringSummary(overrides: Partial<ScoringSummary> = {}): ScoringSummary {
+  return {
+    profile_id: "p1",
+    jobs_active: 3,
+    jobs_unfiltered: 0,
+    jobs_passed: 2,
+    jobs_rejected: 1,
+    jobs_duplicate: 0,
+    jobs_scored: 2,
+    jobs_claude_scored: 0,
+    claude_available: false,
+    claude_enabled: false,
+    claude_calls_today: 0,
+    claude_daily_limit: 100,
+    last_run_at: null,
+    last_run_status: null,
+    task_running: false,
+    ...overrides,
+  };
+}
+
+export function settings(overrides: Partial<Settings> = {}): Settings {
+  return {
+    preferred_locations: ["San Francisco"],
+    remote_preference: "any",
+    job_types: [],
+    salary_min: null,
+    salary_target: null,
+    salary_currency: "USD",
+    work_authorization: null,
+    visa_status: null,
+    requires_sponsorship: false,
+    excluded_companies: [],
+    excluded_keywords: [],
+    application_mode: "APPROVAL_MODE",
+    auto_apply_threshold: 80,
+    daily_application_cap: 10,
+    discovery_enabled: true,
+    claude_scoring_enabled: false,
+    claude_scoring_min_score: 60,
+    willing_to_relocate: null,
+    extra: {},
+    created_at: "2026-11-27T10:00:00Z",
+    updated_at: "2026-11-27T10:00:00Z",
     ...overrides,
   };
 }
@@ -134,6 +234,9 @@ export function jobDetail(overrides: Partial<JobDetail> = {}): JobDetail {
     dedup_key: "a".repeat(64),
     expired_at: null,
     updated_at: "2026-11-27T10:00:00Z",
+    filter_result: null,
+    filtered_at: null,
+    scores: [],
     ...overrides,
   };
 }
@@ -191,4 +294,170 @@ export function routeFetch(routes: Record<string, () => Response>) {
   });
   vi.stubGlobal("fetch", fn);
   return fn;
+}
+
+export function packageDetail(overrides: Partial<PackageDetail> = {}): PackageDetail {
+  return {
+    id: "pk1",
+    job_id: "j1",
+    job_title: "Senior Backend Engineer",
+    company_name: "Stripe",
+    version_number: 1,
+    status: "reviewed",
+    score: 84,
+    score_method: "rules",
+    answers_needing_review: 1,
+    error: null,
+    generated_at: "2026-11-27T10:00:00Z",
+    reviewed_at: "2026-11-27T10:05:00Z",
+    approved_at: null,
+    rejected_at: null,
+    submitted_at: null,
+    created_at: "2026-11-27T10:00:00Z",
+    updated_at: "2026-11-27T10:05:00Z",
+    job: jobSummary(),
+    score_snapshot: { overall: 84, method: "rules", rationale: "Skills: 3 of 4 skills match." },
+    generation: { use_llm: false, llm_used: false },
+    review_notes: null,
+    rejection_reason: null,
+    application_id: null,
+    base_resume: parsedResume(),
+    base_resume_version_id: "v1",
+    tailored_resume: {
+      id: "v2",
+      resume_id: "r1",
+      version_number: 2,
+      base_version_id: "v1",
+      content: parsedResume({ skills: ["Python", "Go"] }),
+      changes: [
+        {
+          section: "skills",
+          item: null,
+          field: "order",
+          before: ["Go", "Python"],
+          after: ["Python", "Go"],
+          reason: "Moved the skills this job asks for to the front: Python",
+          at: "2026-11-27T10:00:00Z",
+        },
+        {
+          section: "summary",
+          item: null,
+          field: "text",
+          before: "Backend engineer.",
+          after: "Senior Backend Engineer with 5+ years of experience in Python. Backend engineer.",
+          reason: "Opens with the role, experience and skills this job asks for",
+          at: "2026-11-27T10:00:00Z",
+        },
+      ],
+      tailoring: {
+        method: "rules",
+        matched_skills: ["Python"],
+        missing_skills: ["Kubernetes"],
+        notes: ["The posting asks for Kubernetes, which your resume does not mention."],
+        rejected_rewrites: [],
+      },
+      ats_keywords: ["Python"],
+      change_summary: "Tailored by reordering: 2 changes.",
+      has_pdf: true,
+      has_docx: true,
+      created_at: "2026-11-27T10:00:00Z",
+    },
+    cover_letter: {
+      id: "cl1",
+      version_number: 1,
+      content: "Dear Stripe hiring team,\n\nI am applying for the Senior Backend Engineer role at Stripe.",
+      word_count: 182,
+      method: "rules",
+      model: null,
+      generation: { notes: ["The sentence about why the role fits is general; make it personal before sending."] },
+      has_pdf: true,
+      has_docx: true,
+      created_at: "2026-11-27T10:00:00Z",
+    },
+    answers: [
+      {
+        id: "a1",
+        question: "Will you now or in the future require visa sponsorship?",
+        question_key: "sponsorship",
+        answer: "No, I do not require visa sponsorship.",
+        source: "settings",
+        confidence: 0.95,
+        needs_review: false,
+        evidence: [{ source: "settings", fact: "requires_sponsorship false" }],
+        updated_at: "2026-11-27T10:00:00Z",
+      },
+      {
+        id: "a2",
+        question: "Why do you want to work at Stripe?",
+        question_key: "why_company",
+        answer: "The role lines up with the work I do best.",
+        source: "rules",
+        confidence: 0.5,
+        needs_review: true,
+        evidence: [{ source: "job", fact: "Senior Backend Engineer at Stripe" }],
+        updated_at: "2026-11-27T10:00:00Z",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+export function submission(overrides: Partial<SubmissionDetail> = {}): SubmissionDetail {
+  return {
+    id: "sb1",
+    application_id: "ap1",
+    package_id: "pk1",
+    job_id: "j1",
+    job_title: "Senior Backend Engineer",
+    company_name: "Stripe",
+    job_status: "shortlisted",
+    platform: "greenhouse",
+    apply_url: "https://job-boards.greenhouse.io/embed/job_app?for=stripe&token=1",
+    mode: "APPROVAL_MODE",
+    status: "waiting_for_review",
+    step: "review",
+    attempts: 1,
+    error: null,
+    error_kind: null,
+    live: true,
+    ready: false,
+    missing_count: 1,
+    problem_count: 0,
+    queued_at: "2026-11-27T10:00:00Z",
+    started_at: "2026-11-27T10:00:01Z",
+    review_ready_at: "2026-11-27T10:00:20Z",
+    confirmed_at: null,
+    submitted_at: null,
+    failed_at: null,
+    cancelled_at: null,
+    updated_at: "2026-11-27T10:00:20Z",
+    review: {
+      resume: { status: "uploaded", file: "Jordan_Rivera_Resume.pdf", field: "Resume/CV" },
+      cover_letter: { status: "uploaded", file: "Jordan_Rivera_Cover_Letter.pdf", field: "Cover Letter" },
+      answers: [
+        { key: "first_name", label: "First Name", kind: "text", required: true, status: "filled", value: "Jordan", source: "resume", reason: "" },
+        { key: "gender", label: "Gender", kind: "combobox", required: false, status: "filled", value: "(voluntary: declined)", source: "rule", reason: "", sensitive: true },
+      ],
+      missing: [{ key: "team", label: "Which team?", kind: "select", reason: "No fact answers this question.", status: "needs_you" }],
+      problems: [],
+      left_for_you: [
+        { key: "team", label: "Which team?", kind: "select", required: true, status: "needs_you", value: "", source: "", reason: "No fact answers this question." },
+        { key: "privacy", label: "I agree to the privacy policy", kind: "checkbox", required: false, status: "consent", value: "", source: "", reason: "Consent boxes are left for you." },
+      ],
+      captcha: false,
+      fields_total: 5,
+      form_changed: false,
+      ready: false,
+    },
+    edits: {},
+    checkpoint: {},
+    screenshots: [{ index: 1, step: "review", label: "Form filled, waiting for your review", at: "2026-11-27T10:00:20Z" }],
+    confirmation_text: null,
+    recovery_hint: null,
+    editable_fields: [
+      { key: "first_name", label: "First Name", kind: "text", required: true, status: "filled", value: "Jordan", reason: "", options: [], edited: false },
+      { key: "team", label: "Which team?", kind: "select", required: true, status: "needs_you", value: "", reason: "", options: ["Payments", "Platform"], edited: false },
+    ],
+    ...overrides,
+  };
 }

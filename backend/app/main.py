@@ -36,6 +36,24 @@ OPENAPI_TAGS = [
     {"name": "jobs", "description": "Search and inspect discovered jobs."},
     {"name": "companies", "description": "Company job boards to crawl (Greenhouse, Lever, Ashby)."},
     {"name": "discovery", "description": "Run discovery, follow runs, connector health."},
+    {"name": "scoring", "description": "Rule filtering and job scoring (rules, optional Claude)."},
+    {
+        "name": "packages",
+        "description": "Application packages: tailored resume, cover letter, answers; approval.",
+    },
+    {
+        "name": "automation",
+        "description": "Fill approved packages into ATS forms; you review and confirm every "
+        "submission (approval mode only).",
+    },
+    {
+        "name": "applications",
+        "description": "Interview pipeline: record responses, interviews, offers, rejections.",
+    },
+    {
+        "name": "insights",
+        "description": "Analytics, insights and recommendations from your own outcomes.",
+    },
     {"name": "system", "description": "App info, scheduled jobs and background tasks."},
 ]
 
@@ -60,11 +78,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_services(app, settings, sessionmaker=get_sessionmaker())
     try:
         await recover_interrupted_work()
+        await app.state.automation.recover_interrupted()
     except Exception:  # database down: start anyway; /health/ready reports it
         logger.exception("could not recover interrupted work at startup")
     app.state.task_manager = BackgroundTaskManager()
     app.state.scheduler = SchedulerService(enabled=settings.scheduler_enabled)
-    register_jobs(app.state.scheduler, settings, app.state.discovery)
+    register_jobs(
+        app.state.scheduler, settings, app.state.pipeline, app.state.lifecycle,
+        app.state.automation, app.state.learning,
+    )  # fmt: skip
     app.state.scheduler.start()
     logger.info(
         "%s %s started (env=%s, auth=%s)",
@@ -78,6 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         app.state.scheduler.shutdown()
         await app.state.task_manager.shutdown()
+        await app.state.automation.shutdown()
         await app.state.http.aclose()
         await dispose_engine()
         logger.info("shutdown complete")

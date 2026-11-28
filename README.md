@@ -23,11 +23,14 @@ on every push: see [docs/TESTING.md](docs/TESTING.md).
 | 3 | Backend foundation | Done |
 | 4 | Resume intelligence (Agents 0, 1; resume versioning) | Done |
 | 5 | Job discovery (Agents 2, 3; Agent 4 filtering moves to Phase 6) | Done |
-| 6 | Rule filtering + scoring + learning (Agents 4, 5) | Pending |
-| 7 | Application packages + automation (Agents 6, 7, 8, 9, 10) | Pending |
-| 8 | Frontend | Pending |
-| 9 | Deployment | Pending |
-| 10 | Testing | Pending |
+| 6 | Rule filtering + scoring (Agents 4, 5; optional Claude scoring; learning moved to Phase 9) | Done |
+| 7 | Application packages + approval workflow (Agents 6, 7, 8, 9) | Done |
+| MVP | Validation on a real resume and real jobs | Done |
+| 8 | Application automation, approval mode (Agent 10, Playwright) | Done |
+| 9 | Learning and insights (interview and outcome tracking, Learning Agent, analytics, recommendations) | Done |
+| Next | Autonomous mode (only after approval mode is validated in real use) | Pending |
+| Later | Deployment (containers, docs) | Pending |
+| Later | End-to-end testing through the frontend | Pending |
 
 Files containing `PLACEHOLDER - implemented in PHASE N` are stubs filled in by that phase.
 
@@ -111,6 +114,139 @@ API: `/api/v1/jobs` (search, `/stats`, `/{id}`, `/{id}/raw`), `/api/v1/companies
 
 **Check it against the real job boards:** [docs/VALIDATION.md](docs/VALIDATION.md).
 
+**Check packages against your own resume and real postings:** [docs/MVP_VALIDATION.md](docs/MVP_VALIDATION.md) (`scripts/validate_mvp.py`; its output is personal and git-ignored).
+
+## Filtering and scoring (Phase 6)
+
+Every discovery run continues as one pipeline (`services/pipeline_service.py`):
+**Discovery → Deduplication → Filtering → Scoring**, each stage recorded in `agent_runs`.
+
+1. **Set preferences** on the **Settings** page: preferred locations, workplace
+   (any / remote only / hybrid / on-site), employment types, minimum and target salary,
+   visa sponsorship, excluded companies and keywords, and (optionally) Claude scoring.
+   Saving re-filters and re-scores your jobs in the background (`RESCORE_ON_CHANGE`).
+2. **Browse matches** on the **Jobs** page: sorted by score, showing jobs that passed
+   your filters by default ("Show": matches / filtered out / not filtered yet / all), with
+   a minimum-score filter and a **Re-score** button. A job's page explains its score
+   component by component and lists every filter check.
+
+How it works:
+
+- **Deduplication** (`FilteringService.mark_duplicates`): after the per-board checks of
+  Phase 5, a sweep links postings that another board already supplied
+  (`jobs.duplicate_of`), including ones inserted by concurrent crawls.
+- **Agent 4, rule filter** (`agents/agent_4_rule_filtering.py`, pure): duplicate,
+  company, keywords, location (aliases such as NYC/SF/US and US states), workplace,
+  employment type, salary and sponsorship rules. Missing information never rejects a job.
+  The decision (`filter_result`, `filter_reason`) is stored on the job; rejected jobs get
+  status `filtered`. Shortlisted, skipped, applied and expired jobs are never re-filtered.
+- **Agent 5, rule-based scoring** (`agents/agent_5_job_scoring.py`, pure, no tokens):
+  skills (35), title relevance (25), seniority (15), location (15), salary (10). Components
+  that cannot be judged are left out and the weights renormalised. Matched and missing
+  skills and a per-component breakdown are stored in `job_scores`.
+- **Claude scoring (optional)**: enable it in Settings with `ANTHROPIC_API_KEY` set. Only
+  jobs whose rule score reaches your minimum are sent, best first, capped by
+  `CLAUDE_SCORING_MAX_PER_RUN` (25), `CLAUDE_SCORING_MAX_PER_DAY` (100 real calls per
+  rolling 24 h) and paced at `CLAUDE_SCORING_PER_MINUTE` (10). Answers are cached; a
+  Claude score counts only while the inputs it saw are unchanged.
+- Re-runs are cheap: filter decisions and scores store a hash of their inputs, so
+  unchanged jobs are skipped.
+
+API: `/api/v1/jobs?sort=score&filter_state=passed&min_score=60`, `/api/v1/jobs/{id}`
+(with `filter_result` and `scores`), `POST /api/v1/scoring/runs`,
+`GET /api/v1/scoring/summary`.
+
+## Application packages (Phase 7)
+
+From a job page, **Generate package** builds everything needed to apply, for you to review:
+
+1. **Tailored resume** (Agent 6): skills the job asks for move to the front in the posting's
+   spelling, the most relevant bullets lead each role, the most relevant projects come first,
+   and the summary opens with one sentence of profile facts. Every change is stored with its
+   section, before/after, reason and time (see **Changes**). With "Reword with Claude", Claude
+   may also reword bullets and the summary; each rewording is checked and dropped if it adds a
+   skill or a number your resume does not have.
+2. **Files** (Agent 7): PDF and DOCX of the tailored and the original resume, single-column
+   and text-only for ATS parsers.
+3. **Cover letter** (Agent 8, optional): 150–300 words built from your resume (or written by
+   Claude and checked the same way), as text, PDF and DOCX. Every version is kept.
+4. **Answers** (Agent 9): why this company, why you are qualified, salary, relocation,
+   sponsorship, work authorization, years of experience and years per required skill, each
+   with the facts it used. Anything your profile and settings cannot answer, or that is
+   personal, is marked **needs your input** instead of guessed.
+
+**Approval** (Packages page): review, edit answers, then **Approve** (the job's application
+becomes `ready` in approval mode, for automation), **Reject** (with a
+reason), **Regenerate** (a new version; the old one is kept as superseded) or **I applied
+with this package**. Packages are filled into real forms on the Applications page.
+
+API: `POST /api/v1/packages` (202), `GET /api/v1/packages?status=&job_id=`,
+`GET /api/v1/packages/{id}`, `POST .../{id}/review|approve|reject|regenerate|mark-submitted`,
+`PATCH .../{id}/answers/{answer_id}`, `GET .../{id}/files/{resume|cover-letter|original-resume}.{pdf|docx}`.
+
+## Application automation, approval mode (Phase 8)
+
+From **Applications** (or an approved package), **Fill application form** opens the job's
+real Greenhouse, Lever or Ashby application in Chromium (Agent 10, Playwright):
+
+1. **Open** the form (Greenhouse through its embeddable form, which works for every board).
+2. **Upload** the tailored resume and cover letter (on Lever, which has no cover-letter
+   upload, the letter goes into "Additional information"), and wait for sites that read
+   the resume to finish, so they do not overwrite the answers.
+3. **Fill** every field a fact supports. Fields are found by meaning (labels, ARIA,
+   legends, nearby text, placeholders), not by hard-coded selectors; text boxes, dropdowns,
+   React-select comboboxes, radio buttons, checkboxes, Yes/No buttons and uploads all work.
+4. **Validate**: required fields still empty, the form's own error messages, CAPTCHAs.
+5. **Stop** with a screenshot and the **review screen**: resume and cover letter status,
+   answers inserted (and where each came from), missing fields, validation problems.
+   **Edit** any field (it changes in the open form), **Retry** (reopen and refill from the
+   checkpoint), **Cancel**, or **Submit**, which needs an explicit confirmation.
+
+What it never does: submit without your confirmation (the database refuses it too), type a
+package answer still marked "needs your input", tick consent or certification boxes, or
+guess voluntary self-identification (it picks "decline" where offered). Failures (browser
+crash, timeout, network, upload refused, job closed, changed form, CAPTCHA, no
+confirmation) are recorded with what to do next; transient ones retry automatically, a
+submission never does. There is no autonomous mode yet.
+
+Setup: `playwright install chromium` in the backend virtualenv (once). `AUTOMATION_HEADLESS=false`
+shows the browser, which is how you solve a CAPTCHA. See ADR-014 and
+[docs/AUTOMATION_VALIDATION.md](docs/AUTOMATION_VALIDATION.md).
+
+API: `GET /api/v1/automation/{status,queue}`, `POST /api/v1/automation/submissions` (202),
+`GET .../submissions?status=`, `GET .../submissions/{id}`, `PATCH .../{id}/fields`,
+`POST .../{id}/retry|cancel`, `POST .../{id}/submit` with `{"confirm": true}`,
+`GET .../{id}/screenshots/{n}`, `GET /api/v1/automation/logs?submission_id=&level=`.
+
+## Learning and insights (Phase 9)
+
+**Interviews** (`/insights/pipeline`): every submitted application by where it stands.
+Record what happened: a recruiter response, recruiter / phone screens, technical, hiring
+manager, onsite and final rounds (scheduled, completed, cancelled or no-show), an offer, a
+rejection or a withdrawal. The application's milestones and status follow from those
+events; edit or delete one and everything recomputes. The **outcome timeline** shows
+packages generated and approved, submissions and every event.
+
+**Dashboard** (`/`): response, interview and offer rates with 95 % intervals, the funnel
+(generated -> approved -> submitted -> response -> interview -> offer), score accuracy (does
+the job score predict interviews?), skill correlations, results by job family and workplace,
+and the trend. **Companies**, **Resume performance** (resume versions, cover letter,
+tailoring, package versions, how you applied) and **Job boards** break the same rates down.
+Set a company's industry there to compare industries; the app never guesses it.
+
+**Insights and recommendations** (`/insights/recommendations`) come only from your data and
+only when they hold up: enough applications per group, a real difference, and Fisher's exact
+test corrected for the number of comparisons. Each shows its counts. Recommendations (score
+threshold, job families, industries, boards, cover letters, skills to add *if you have
+them*, outcomes to record) link to where to act; nothing is changed for you. The **Learning
+Agent** runs daily (or "Run the Learning Agent") and keeps a snapshot history. See ADR-015.
+
+API: `GET /api/v1/applications`, `GET /api/v1/applications/{id}`,
+`POST|PATCH|DELETE /api/v1/applications/{id}/events[/{event_id}]`,
+`GET /api/v1/applications/timeline`, `GET /api/v1/insights{,/summary,/companies,/boards,/resumes,/recommendations,/history}`,
+`PUT /api/v1/insights/recommendations/{key}/state`, `POST /api/v1/insights/refresh`,
+`PATCH /api/v1/companies/{id}` with `industry`.
+
 ## Run it locally
 
 Needs Docker, Python 3.14 and Node 26.
@@ -131,7 +267,7 @@ python -m app             # binds BACKEND_HOST:BACKEND_PORT, one worker
 
 - Docs: http://127.0.0.1:8000/api/v1/docs (OpenAPI JSON at `/api/v1/openapi.json`)
 - Probes: `GET /health` (liveness), `GET /health/ready` (database + migrations + scheduler)
-- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/system/{info,jobs,tasks}`
+- API: `/api/v1/resumes`, `/api/v1/profile`, `/api/v1/settings`, `/api/v1/jobs`, `/api/v1/companies`, `/api/v1/discovery`, `/api/v1/scoring`, `/api/v1/packages`, `/api/v1/automation`, `/api/v1/applications`, `/api/v1/insights`, `/api/v1/system/{info,jobs,tasks,storage}`
 - Auth: `AUTH_MODE=none` (default, loopback only) or `AUTH_MODE=api_key` with `API_KEY`
 - Errors: `{"error": {"code", "message", "details"}}`; every response carries `X-Request-ID`
 
@@ -143,7 +279,7 @@ Layout (imports only point down; `tests/unit/test_architecture.py` enforces it):
 | HTTP | `routers/`, `dependencies.py` (dependency injection) |
 | jobs | `scheduler/` (scheduled jobs, background task manager) |
 | business logic | `services/`, `learning/` |
-| workers | `agents/` (parser, profile; `agents/runs.py` records `agent_runs`) |
+| workers | `agents/` (Agents 0–10; `agents/runs.py` records `agent_runs`) |
 | queries | `repositories/` (never commit) |
 | adapters | `documents/`, `storage/`, `llm/`, `parsing/`, `connectors/`, `automation/` |
 | foundation | `core/` (config, logging, errors, database, auth, middleware) |

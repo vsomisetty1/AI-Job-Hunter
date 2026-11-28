@@ -12,6 +12,11 @@ import { useJob, useJobRaw } from "@/hooks/useJobs";
 import { errorMessage } from "@/lib/api/client";
 import { formatDateTime, formatSalary, safeUrl } from "@/lib/format";
 
+import { GeneratePackage } from "@/components/packages/GeneratePackage";
+
+import { ScoreBadge } from "./ScoreBadge";
+import { FilterCard, ScoreCard } from "./ScoreDetails";
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex gap-3 py-1 text-sm">
@@ -52,7 +57,9 @@ export function JobDetailView({ id }: { id: string }) {
         <Link href="/jobs" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
           ← All jobs
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold">{job.title}</h1>
+        <h1 className="mt-2 flex flex-wrap items-center gap-3 text-2xl font-semibold">
+          {job.title} <ScoreBadge score={job.score} method={job.score_method} />
+        </h1>
         <p className="text-zinc-600 dark:text-zinc-400">
           {job.company_name}
           {job.location && ` · ${job.location}`}
@@ -91,6 +98,9 @@ export function JobDetailView({ id }: { id: string }) {
           </Card>
         </div>
         <div className="space-y-6">
+          <GeneratePackage jobId={job.id} expired={job.status === "expired"} />
+          <ScoreCard scores={job.scores} />
+          <FilterCard result={job.filter_result} />
           <Card title="Details">
             <dl>
               <Row label="Compensation">{salary || job.compensation_text}</Row>

@@ -32,3 +32,6 @@ storage_cache/
 .DS_Store
 .idea/
 .vscode/
+
+# MVP validation reports (contain personal data)
+validation-output/

@@ -50,6 +50,12 @@ class DiscoveryInProgressError(AppError):
     code = "discovery_in_progress"
 
 
+EMPTY_BOARD_NOTE = (
+    "the board lists no open jobs; if this persists, "
+    "the company may have moved to another job board"
+)
+
+
 @dataclass
 class CompanyOutcome:
     company_id: str
@@ -195,6 +201,10 @@ class DiscoveryService:
 
         outcome.found, outcome.invalid = result.found, result.invalid_count
         outcome.invalid_samples = result.invalid
+        if result.found == 0:
+            # A board that answers but lists nothing is usually a company that
+            # moved to another job board (seen in MVP validation), not a hiring freeze.
+            outcome.notes.append(EMPTY_BOARD_NOTE)
         await self._persist(target, result, outcome)
         return outcome
 

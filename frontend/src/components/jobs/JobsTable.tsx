@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/Badge";
 import { formatRelative, formatSalary } from "@/lib/format";
 import type { JobSummary, RemoteType } from "@/types";
 
+import { ScoreBadge } from "./ScoreBadge";
+
 const REMOTE_TONE: Record<RemoteType, "green" | "indigo" | "neutral" | "amber"> = {
   remote: "green",
   hybrid: "indigo",
@@ -21,6 +23,7 @@ export function JobsTable({ jobs }: { jobs: JobSummary[] }) {
       <table className="w-full text-left text-sm">
         <thead className="text-xs uppercase text-zinc-500">
           <tr>
+            <th className="py-2 pr-4">Score</th>
             <th className="py-2 pr-4">Role</th>
             <th className="py-2 pr-4">Location</th>
             <th className="py-2 pr-4">Salary</th>
@@ -30,7 +33,13 @@ export function JobsTable({ jobs }: { jobs: JobSummary[] }) {
         </thead>
         <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
           {jobs.map((job) => (
-            <tr key={job.id} className={job.status === "expired" ? "opacity-60" : undefined}>
+            <tr
+              key={job.id}
+              className={job.status === "expired" || job.status === "filtered" ? "opacity-60" : undefined}
+            >
+              <td className="py-2 pr-4">
+                <ScoreBadge score={job.score} method={job.score_method} />
+              </td>
               <td className="py-2 pr-4">
                 <Link
                   href={`/jobs/${job.id}`}
@@ -47,6 +56,11 @@ export function JobsTable({ jobs }: { jobs: JobSummary[] }) {
                     </span>
                   )}
                 </div>
+                {job.filter_reason && (
+                  <div className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+                    Filtered: {job.filter_reason}
+                  </div>
+                )}
               </td>
               <td className="py-2 pr-4">
                 <div className="max-w-56 truncate" title={job.location ?? ""}>

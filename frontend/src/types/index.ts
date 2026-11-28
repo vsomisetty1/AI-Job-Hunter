@@ -261,6 +261,11 @@ export interface JobSummary {
   posted_at: string | null;
   first_seen_at: string;
   last_seen_at: string;
+  /** Effective score for the active profile: Claude when current, else rules. */
+  score: number | null;
+  score_method: ScoringMethod | null;
+  filter_reason: string | null;
+  duplicate_of: string | null;
 }
 
 export interface JobDetail extends JobSummary {
@@ -271,6 +276,10 @@ export interface JobDetail extends JobSummary {
   dedup_key: string;
   expired_at: string | null;
   updated_at: string;
+  filter_result: FilterResult | null;
+  filtered_at: string | null;
+  /** Rule-based score first, then Claude's (if any). */
+  scores: JobScore[];
 }
 
 export interface Page<T> {
@@ -287,7 +296,9 @@ export interface JobSearch {
   remote_type?: RemoteType | "";
   status?: JobStatus | "";
   include_expired?: boolean;
-  sort?: "newest" | "posted" | "title" | "company";
+  filter_state?: FilterState;
+  min_score?: number;
+  sort?: JobSort;
   limit?: number;
   offset?: number;
 }
@@ -386,4 +397,616 @@ export interface SourceHealth {
     jobs_visible: number | null;
     error: string | null;
   } | null;
+}
+
+// ------------------------------------------------- Phase 6: filtering & scoring
+export type ScoringMethod = "rules" | "claude";
+export type FilterState = "all" | "passed" | "rejected" | "pending";
+export type JobSort = "score" | "newest" | "posted" | "title" | "company";
+export type EmploymentType = "full_time" | "part_time" | "contract" | "temporary" | "internship";
+export type RemotePreference = "remote_only" | "hybrid" | "onsite" | "any";
+
+export interface FilterCheck {
+  rule: string;
+  passed: boolean;
+  reason: string;
+}
+
+export interface FilterResult {
+  passed: boolean;
+  version: string;
+  checks: FilterCheck[];
+}
+
+export interface ScoreComponent {
+  score: number | null;
+  summary: string;
+  detail: Record<string, unknown>;
+}
+
+export interface JobScore {
+  id: string;
+  job_id: string;
+  profile_id: string;
+  scoring_method: ScoringMethod;
+  overall_score: number;
+  skills_score: number | null;
+  seniority_score: number | null;
+  location_score: number | null;
+  relevance_score: number | null;
+  salary_score: number | null;
+  interview_probability: number | null;
+  growth_score: number | null;
+  company_score: number | null;
+  rationale: string | null;
+  matched_skills: string[];
+  missing_skills: string[];
+  /** rules: {version, overall, confidence, weights, components}; claude: {strengths, concerns, ...} */
+  breakdown: {
+    confidence?: number;
+    weights?: Record<string, number>;
+    components?: Record<string, ScoreComponent>;
+    strengths?: string[];
+    concerns?: string[];
+    [key: string]: unknown;
+  };
+  model: string | null;
+  prompt_version: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  created_at: string;
+  updated_at: string;
+  is_current: boolean;
+}
+
+export interface ScoringSummary {
+  profile_id: string | null;
+  jobs_active: number;
+  jobs_unfiltered: number;
+  jobs_passed: number;
+  jobs_rejected: number;
+  jobs_duplicate: number;
+  jobs_scored: number;
+  jobs_claude_scored: number;
+  claude_available: boolean;
+  claude_enabled: boolean;
+  claude_calls_today: number;
+  claude_daily_limit: number;
+  last_run_at: string | null;
+  last_run_status: string | null;
+  task_running: boolean;
+}
+
+export interface ScoringStarted {
+  task_id: string;
+  status: string;
+  detail: string;
+}
+
+export interface Settings {
+  preferred_locations: string[];
+  remote_preference: RemotePreference;
+  job_types: EmploymentType[];
+  salary_min: number | null;
+  salary_target: number | null;
+  salary_currency: string;
+  work_authorization: string | null;
+  visa_status: string | null;
+  requires_sponsorship: boolean;
+  excluded_companies: string[];
+  excluded_keywords: string[];
+  application_mode: "APPROVAL_MODE" | "AUTONOMOUS_MODE";
+  auto_apply_threshold: number;
+  daily_application_cap: number;
+  discovery_enabled: boolean;
+  claude_scoring_enabled: boolean;
+  claude_scoring_min_score: number;
+  willing_to_relocate: boolean | null;
+  extra: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type SettingsUpdate = Partial<Omit<Settings, "created_at" | "updated_at">>;
+
+// --------------------------------------------- Phase 7: application packages
+export type PackageStatus =
+  | "generating"
+  | "generated"
+  | "reviewed"
+  | "approved"
+  | "rejected"
+  | "submitted"
+  | "failed"
+  | "superseded";
+
+export interface ResumeChange {
+  section: string;
+  item: string | null;
+  field: string;
+  before: unknown;
+  after: unknown;
+  reason: string;
+  at: string;
+}
+
+export interface TailoredResume {
+  id: string;
+  resume_id: string;
+  version_number: number;
+  base_version_id: string | null;
+  content: ParsedResume;
+  changes: ResumeChange[];
+  tailoring: {
+    method?: "rules" | "claude";
+    model?: string | null;
+    matched_skills?: string[];
+    missing_skills?: string[];
+    notes?: string[];
+    rejected_rewrites?: { item: string; text: string; problems: string[] }[];
+  };
+  ats_keywords: string[];
+  change_summary: string | null;
+  has_pdf: boolean;
+  has_docx: boolean;
+  created_at: string;
+}
+
+export interface CoverLetter {
+  id: string;
+  version_number: number;
+  content: string;
+  word_count: number;
+  method: "rules" | "claude";
+  model: string | null;
+  generation: { facts?: string[]; notes?: string[]; [key: string]: unknown };
+  has_pdf: boolean;
+  has_docx: boolean;
+  created_at: string;
+}
+
+export interface PackageAnswer {
+  id: string;
+  question: string;
+  question_key: string | null;
+  answer: string;
+  source: "profile" | "settings" | "rules" | "llm" | "user";
+  confidence: number | null;
+  needs_review: boolean;
+  evidence: { source: string; fact: string }[];
+  updated_at: string;
+}
+
+export interface PackageSummary {
+  id: string;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  version_number: number;
+  status: PackageStatus;
+  score: number | null;
+  score_method: string | null;
+  answers_needing_review: number;
+  error: string | null;
+  generated_at: string | null;
+  reviewed_at: string | null;
+  approved_at: string | null;
+  rejected_at: string | null;
+  submitted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PackageDetail extends PackageSummary {
+  job: JobSummary;
+  score_snapshot: {
+    overall?: number;
+    method?: string;
+    matched_skills?: string[];
+    missing_skills?: string[];
+    rationale?: string | null;
+    [key: string]: unknown;
+  };
+  generation: {
+    use_llm?: boolean;
+    llm_used?: boolean;
+    tailoring_notes?: string[];
+    cover_letter_notes?: string[];
+    answer_notes?: string[];
+    [key: string]: unknown;
+  };
+  review_notes: string | null;
+  rejection_reason: string | null;
+  application_id: string | null;
+  base_resume: ParsedResume | null;
+  base_resume_version_id: string | null;
+  tailored_resume: TailoredResume | null;
+  cover_letter: CoverLetter | null;
+  answers: PackageAnswer[];
+}
+
+export interface PackageStarted {
+  package_id: string;
+  task_id: string;
+  status: string;
+  detail: string;
+}
+
+export type PackageDoc = "resume" | "cover-letter" | "original-resume";
+
+// ---------------------------------------------------------------- automation (Phase 8)
+export type SubmissionStatus =
+  | "queued"
+  | "in_progress"
+  | "waiting_for_review"
+  | "submitting"
+  | "submitted"
+  | "failed"
+  | "cancelled";
+
+export type LogLevel = "debug" | "info" | "warning" | "error";
+
+export interface SubmissionStarted {
+  submission_id: string;
+  task_id: string | null;
+  status: SubmissionStatus;
+  detail: string;
+}
+
+export interface SubmissionSummary {
+  id: string;
+  application_id: string;
+  package_id: string | null;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  job_status: string;
+  platform: string;
+  apply_url: string;
+  mode: "APPROVAL_MODE";
+  status: SubmissionStatus;
+  step: string;
+  attempts: number;
+  error: string | null;
+  error_kind: string | null;
+  live: boolean;
+  ready: boolean | null;
+  missing_count: number;
+  problem_count: number;
+  queued_at: string;
+  started_at: string | null;
+  review_ready_at: string | null;
+  confirmed_at: string | null;
+  submitted_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
+  updated_at: string;
+}
+
+export interface ReviewField {
+  key: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  status: "filled" | "uploaded" | "needs_you" | "consent" | "skipped" | "failed";
+  value: string;
+  source: string;
+  reason: string;
+  sensitive?: boolean;
+  options?: string[];
+}
+
+export interface ReviewDoc {
+  status: "uploaded" | "pasted" | "not_asked" | "failed" | "needs_you" | "skipped";
+  file?: string | null;
+  field?: string | null;
+  reason?: string | null;
+}
+
+export interface ReviewProblem {
+  key: string | null;
+  label: string | null;
+  message: string;
+}
+
+export interface ReviewMissing {
+  key: string;
+  label: string;
+  kind: string;
+  reason: string;
+  status: string;
+}
+
+export interface SubmissionReview {
+  url?: string;
+  resume?: ReviewDoc;
+  cover_letter?: ReviewDoc;
+  answers?: ReviewField[];
+  missing?: ReviewMissing[];
+  problems?: ReviewProblem[];
+  left_for_you?: ReviewField[];
+  captcha?: boolean;
+  fields_total?: number;
+  form_changed?: boolean;
+  ready?: boolean;
+}
+
+export interface EditableField {
+  key: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  status: string;
+  value: string | boolean | string[];
+  reason: string;
+  options: string[];
+  edited: boolean;
+}
+
+export interface SubmissionDetail extends SubmissionSummary {
+  review: SubmissionReview;
+  edits: Record<string, string | boolean | string[]>;
+  checkpoint: Record<string, unknown>;
+  screenshots: { index: number; step: string; label: string; at: string | null }[];
+  confirmation_text: string | null;
+  recovery_hint: string | null;
+  editable_fields: EditableField[];
+}
+
+export interface ReadyPackage {
+  package_id: string;
+  application_id: string;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  platform: string;
+  supported: boolean;
+  job_status: string;
+  approved_at: string | null;
+}
+
+export interface AutomationQueue {
+  ready: ReadyPackage[];
+  active: SubmissionSummary[];
+  needs_attention: SubmissionSummary[];
+}
+
+export interface AutomationLog {
+  id: string;
+  submission_id: string;
+  job_title: string;
+  company_name: string;
+  level: LogLevel;
+  step: string | null;
+  message: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AutomationStatus {
+  enabled: boolean;
+  mode: "APPROVAL_MODE";
+  autonomous_available: boolean;
+  headless: boolean;
+  browser_running: boolean;
+  open_sessions: number;
+  max_sessions: number;
+  session_idle_minutes: number;
+}
+
+// ---------------------------------------------------------------- learning & insights (Phase 9)
+export type InterviewStage =
+  | "recruiter_response"
+  | "recruiter_screen"
+  | "phone_screen"
+  | "technical_interview"
+  | "hiring_manager_interview"
+  | "onsite"
+  | "final_round"
+  | "offer"
+  | "rejection"
+  | "withdrawal";
+
+export type EventStatus = "scheduled" | "completed" | "cancelled" | "no_show";
+export type ApplicationStatus = "drafted" | "ready" | "submitted" | "interview" | "rejected" | "offer" | "withdrawn";
+
+export interface InterviewEvent {
+  id: string;
+  application_id: string;
+  stage: InterviewStage;
+  status: EventStatus;
+  occurred_at: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PipelineItem {
+  application_id: string;
+  job_id: string;
+  job_title: string;
+  company_id: string;
+  company_name: string;
+  industry: string | null;
+  platform: string;
+  package_id: string | null;
+  status: ApplicationStatus;
+  current_stage: InterviewStage | null;
+  next_scheduled: InterviewEvent | null;
+  submitted_at: string | null;
+  responded_at: string | null;
+  first_interview_at: string | null;
+  offer_at: string | null;
+  rejected_at: string | null;
+  withdrawn_at: string | null;
+  days_since_submitted: number | null;
+  events: number;
+}
+
+export interface TimelineEntry {
+  at: string;
+  kind: string;
+  label: string;
+  application_id: string | null;
+  job_id: string;
+  job_title: string;
+  company_name: string;
+  status: EventStatus | null;
+  detail: Record<string, unknown>;
+}
+
+export interface ApplicationOutcomes extends PipelineItem {
+  interview_events: InterviewEvent[];
+  timeline: TimelineEntry[];
+}
+
+/** A rate with its 95 % Wilson interval. */
+export interface RateStat {
+  k: number;
+  n: number;
+  rate: number | null;
+  low: number | null;
+  high: number | null;
+}
+
+export interface SegmentStat {
+  key: string;
+  label: string;
+  packages: number;
+  submitted: number;
+  responded: number;
+  interviewed: number;
+  offered: number;
+  rejected: number;
+  response_rate: RateStat;
+  interview_rate: RateStat;
+  offer_rate: RateStat;
+  median_days_to_response: number | null;
+}
+
+export interface FunnelStep {
+  stage: string;
+  label: string;
+  count: number;
+  from_previous: RateStat | null;
+  from_start: RateStat | null;
+}
+
+export interface ScorePrediction {
+  auc: number | null;
+  positives: number;
+  negatives: number;
+  mean_score_positive: number | null;
+  mean_score_negative: number | null;
+  enough_data: boolean;
+  verdict: string;
+}
+
+export interface AnalyticsOverview {
+  packages: number;
+  approved: number;
+  submitted: number;
+  responded: number;
+  interviewed: number;
+  offered: number;
+  rejected: number;
+  withdrawn: number;
+  awaiting_reply: number;
+  no_reply_after_14_days: number;
+  response_rate: RateStat;
+  interview_rate: RateStat;
+  offer_rate: RateStat;
+  approval_rate: RateStat;
+  submission_rate: RateStat;
+  interview_to_offer: RateStat;
+  median_days_to_response: number | null;
+  enough_data: boolean;
+  min_sample: number;
+}
+
+export interface SkillCorrelation {
+  skill: string;
+  asked: number;
+  have: RateStat;
+  lack: RateStat;
+  lift: number | null;
+  p_value: number | null;
+}
+
+export interface AnalyticsSummary {
+  computed_at: string;
+  overview: AnalyticsOverview;
+  funnel: FunnelStep[];
+  score_accuracy: {
+    scored_submitted: number;
+    bands: SegmentStat[];
+    interviewed: ScorePrediction;
+    responded: ScorePrediction;
+  };
+  skill_correlations: SkillCorrelation[];
+  by_family: SegmentStat[];
+  by_remote: SegmentStat[];
+  by_score_band: SegmentStat[];
+}
+
+export interface CompanyStat extends SegmentStat {
+  company_id: string;
+  industry: string | null;
+  platform: string | null;
+}
+
+export interface BoardStat extends SegmentStat {
+  funnel: FunnelStep[];
+}
+
+export interface ResumeAnalytics {
+  resume_variant: SegmentStat[];
+  tailoring: SegmentStat[];
+  cover_letter: SegmentStat[];
+  cover_letter_method: SegmentStat[];
+  regenerated: SegmentStat[];
+  applied_via: SegmentStat[];
+}
+
+export interface Insight {
+  key: string;
+  kind: "comparison" | "threshold" | "skill" | "score" | "fact";
+  title: string;
+  detail: string;
+  confidence: "high" | "medium" | "low" | "fact";
+  direction: "better" | "worse" | "neutral";
+  dimension: string | null;
+  segment: string | null;
+  outcome: string | null;
+  evidence: Record<string, unknown>;
+}
+
+export interface InsightsReport {
+  status: "ok" | "insufficient_data";
+  message: string;
+  comparisons_tested: number;
+  insights: Insight[];
+}
+
+export interface Recommendation {
+  key: string;
+  category: "targeting" | "profile" | "process" | "data";
+  priority: "high" | "medium" | "low";
+  title: string;
+  rationale: string;
+  action_label: string;
+  action_href: string;
+  based_on: string[];
+  evidence: Record<string, unknown>;
+  state: "dismissed" | "done" | null;
+}
+
+export interface HistoryPoint {
+  at: string;
+  submitted: number | null;
+  response_rate: number | null;
+  interview_rate: number | null;
+  offer_rate: number | null;
+  insights: number;
+  recommendations: number;
 }
