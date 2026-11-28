@@ -10,7 +10,7 @@ kept out of git (`validation-output/` is ignored).
 ```bash
 ./scripts/dev.sh                          # or start the backend on its own
 python scripts/validate_mvp.py path/to/resume.docx --out validation-output/run1
-python scripts/validate_mvp.py path/to/resume.docx --reuse --top 10 --out validation-output/run2
+python scripts/validate_mvp.py --reuse --jobs 10 --out validation-output/run2
 ```
 
 `scripts/validate_mvp.py` drives the running backend over HTTP only: uploads the resume

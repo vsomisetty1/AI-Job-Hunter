@@ -12,6 +12,9 @@ and learn from your outcomes. Every submission needs your explicit confirmation
 the roadmap), [AI_CONTEXT.md](AI_CONTEXT.md) (objectives, conventions, AI strategy),
 [docs/architecture/](docs/architecture/) (ADR-001 to ADR-016).
 
+**First time:** [LOCAL_SETUP.md](LOCAL_SETUP.md) (exact setup steps and checks), then
+[LOCAL_VALIDATION_CHECKLIST.md](LOCAL_VALIDATION_CHECKLIST.md) (resume to first real application).
+
 **Run, back up, release:** [DEPLOYMENT.md](DEPLOYMENT.md) (Docker Compose or native, security
 model), [BACKUP_AND_RECOVERY.md](BACKUP_AND_RECOVERY.md), [RELEASE_READINESS.md](RELEASE_READINESS.md)
 (what is verified, what is not, the gates to 1.0).

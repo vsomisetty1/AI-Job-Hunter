@@ -80,6 +80,8 @@ stored by the native backend go to `backend/data/storage`, not the Compose volum
 
 ## 3. Run natively (development)
 
+Step by step, with checks and troubleshooting: [LOCAL_SETUP.md](LOCAL_SETUP.md).
+
 ```bash
 ./scripts/dev.sh
 ```
