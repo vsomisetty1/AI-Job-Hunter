@@ -109,9 +109,14 @@ info "backup written: $DEST ($TABLES tables, $FILE_COUNT files)"
 
 if [ -n "$KEEP" ]; then
   # Names sort by time; delete all but the newest N complete backups.
-  ls -1d "$OUT"/ajh-backup-*Z 2>/dev/null | sort | head -n "-$KEEP" | while read -r old; do
-    info "removing old backup $(basename "$old")"
-    rm -rf "$old"
-  done
+  # (no `head -n -N`: macOS head does not support negative counts)
+  all="$(find "$OUT" -maxdepth 1 -type d -name 'ajh-backup-*Z' | sort)"
+  drop=$(( $(printf '%s\n' "$all" | grep -c . || true) - KEEP ))
+  if [ "$drop" -gt 0 ]; then
+    printf '%s\n' "$all" | head -n "$drop" | while read -r old; do
+      info "removing old backup $(basename "$old")"
+      rm -rf "$old"
+    done
+  fi
 fi
 echo "$DEST"
